@@ -112,6 +112,25 @@ func (l *ledger) outstanding() int {
 	return len(l.open)
 }
 
+// openDoc is an unfinished document, for the final report.
+type openDoc struct {
+	tenant  string
+	offered time.Time
+}
+
+// snapshotAll returns every finished and every open document under one lock,
+// so a document finishing while the report is built is counted exactly once.
+func (l *ledger) snapshotAll() ([]finished, []openDoc) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	done := append([]finished(nil), l.finished...)
+	open := make([]openDoc, 0, len(l.open))
+	for _, d := range l.open {
+		open = append(open, openDoc{tenant: d.tenant, offered: d.offered})
+	}
+	return done, open
+}
+
 // snapshot copies terminal documents finished since index from.
 func (l *ledger) snapshot(from int) ([]finished, int) {
 	l.mu.Lock()

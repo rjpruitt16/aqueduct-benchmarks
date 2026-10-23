@@ -234,7 +234,11 @@ func (r *run) submitLoop(ctx context.Context) {
 			if retryable.retryAfter > wait {
 				wait = retryable.retryAfter
 			}
-			time.Sleep(wait)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
 			if backoff < 30*time.Second {
 				backoff *= 2
 			}

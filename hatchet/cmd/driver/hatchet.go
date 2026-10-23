@@ -165,11 +165,33 @@ func tenantFromToken(token string) (string, error) {
 	return claims.Sub, nil
 }
 
+// maxRetryAfter caps how long one Retry-After hint can hold a submitter.
+const maxRetryAfter = 60 * time.Second
+
+// parseRetryAfter reads Retry-After as seconds or an HTTP date, capped at
+// maxRetryAfter. Past, unparsable or non-positive values return 0, so the
+// producer's own backoff applies.
 func parseRetryAfter(v string) time.Duration {
-	if s, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && s > 0 {
-		return time.Duration(s) * time.Second
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
 	}
-	return 0
+	var d time.Duration
+	if s, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if s <= 0 {
+			return 0
+		}
+		if s > int64(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
+		d = time.Duration(s) * time.Second
+	} else if t, err := http.ParseTime(v); err == nil {
+		d = time.Until(t)
+	}
+	if d <= 0 {
+		return 0
+	}
+	return min(d, maxRetryAfter)
 }
 
 func truncate(b []byte) string {

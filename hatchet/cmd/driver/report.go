@@ -135,7 +135,7 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	}
 	overload := func(name string) bool { return name == "burst" || name == "sustained" }
 
-	all, _ := l.snapshot(0)
+	all, open := l.snapshotAll()
 	rep := report{Started: start.UTC(), Phases: windows, Tenants: map[string]*tenantTotal{}, Totals: map[string]int{}}
 	lat := map[string]map[string][]float64{}
 	completions := map[string][]time.Time{}
@@ -166,6 +166,22 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 			completions[d.tenant] = append(completions[d.tenant], d.completed)
 		}
 	}
+	// Documents still open count toward what each tenant offered, but were
+	// not served.
+	for _, d := range open {
+		tt := rep.Tenants[d.tenant]
+		if tt == nil {
+			tt = &tenantTotal{Offered: map[string]int{}, Outcomes: map[string]int{}, P50ms: map[string]float64{}, P99ms: map[string]float64{}}
+			rep.Tenants[d.tenant] = tt
+			lat[d.tenant] = map[string][]float64{}
+		}
+		ph := phaseOf(d.offered)
+		tt.Offered[ph]++
+		tt.Outcomes["outstanding"]++
+		if overload(ph) {
+			demand[d.tenant]++
+		}
+	}
 	var ratios []float64
 	for name, tt := range rep.Tenants {
 		for ph, xs := range lat[name] {
@@ -184,8 +200,8 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	}
 	rep.JainOverload = jain(ratios)
 	rep.DuplicateDone = l.duplicates
-	rep.Outstanding = l.outstanding()
-	rep.DrainSeconds = drainSeconds(windows)
+	rep.Outstanding = len(open)
+	rep.DrainSeconds = drainSeconds(windows, len(open))
 	return rep
 }
 
@@ -221,7 +237,11 @@ func longestGap(done []time.Time, windows []phaseWindow) float64 {
 
 // drainSeconds is how long after the sustained phase the outstanding count
 // took to fall back to 1.5x its steady-phase peak.
-func drainSeconds(windows []phaseWindow) float64 {
+//
+// If no interval sample caught the drain but the ledger is at the threshold
+// now, the drain happened after the last sample, and the time since the
+// sustained phase is returned as an upper bound.
+func drainSeconds(windows []phaseWindow, outstandingNow int) float64 {
 	timelineMu.Lock()
 	defer timelineMu.Unlock()
 	var sustainedEnd time.Time
@@ -244,6 +264,9 @@ func drainSeconds(windows []phaseWindow) float64 {
 		if rec.At.After(sustainedEnd) && rec.Outstanding <= limit {
 			return rec.At.Sub(sustainedEnd).Seconds()
 		}
+	}
+	if outstandingNow <= limit {
+		return time.Since(sustainedEnd).Seconds()
 	}
 	return -1 // never drained within the run
 }

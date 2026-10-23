@@ -76,7 +76,12 @@ func main() {
 		time.Sleep(step)
 		if callback != "" {
 			body, _ := json.Marshal(pipeline.Completion{DocID: doc.DocID, RunID: ctx.WorkflowRunId()})
-			if resp, err := httpClient.Post(callback, "application/json", bytes.NewReader(body)); err != nil {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, callback, bytes.NewReader(body))
+			if err != nil {
+				return stepOutput{}, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			if resp, err := httpClient.Do(req); err != nil {
 				// The driver also polls run status, so a missed callback is
 				// recovered there rather than failing the document.
 				log.Printf("callback for %s: %v", doc.DocID, err)
