@@ -44,7 +44,8 @@ umask 077
 mkdir -p "$OUT"
 
 # A failed run, or one whose results could not all be copied, keeps the app
-# (and its driver.log) for inspection instead of destroying it.
+# (and its logs) for inspection instead of destroying it; so does any command
+# that fails under set -e.
 fail() {
   echo "$1" >&2
   KEEP=1
@@ -53,7 +54,10 @@ fail() {
 }
 
 cleanup() {
-  if [ "${KEEP:-}" != 1 ]; then
+  status=$?
+  if [ "$status" != 0 ] && [ "${KEEP:-}" != 1 ]; then
+    echo "run.sh failed (status $status); keeping $APP for inspection; destroy it with: fly apps destroy $APP -y" >&2
+  elif [ "${KEEP:-}" != 1 ]; then
     fly apps destroy "$APP" -y >/dev/null 2>&1 || true
   fi
 }
@@ -62,18 +66,18 @@ trap cleanup EXIT
 machine_id() { fly machine list -a "$APP" --json | jq -r --arg n "$1" '.[] | select(.name == $n) | .id'; }
 host() { echo "$(machine_id "$1").vm.$APP.internal"; }
 
-# Waits until a one-shot machine has exited and prints its exit code.
+# Waits until a one-shot machine has exited and prints its exit code. Fly
+# omits exit_code from the event when it is 0, and lists events newest first.
 wait_exit() {
-  id=$(machine_id "$1")
   i=0
   while :; do
-    state=$(fly machine status "$id" -a "$APP" --display-config=false 2>/dev/null | awk '/^ *State/ {print $NF; exit}')
-    case "$state" in stopped | destroyed) break ;; esac
+    m=$(fly machine list -a "$APP" --json | jq --arg n "$1" '.[] | select(.name == $n)')
+    case "$(echo "$m" | jq -r .state)" in stopped | destroyed) break ;; esac
     i=$((i + 1))
-    [ "$i" -gt 180 ] && { echo "$1 did not finish" >&2; exit 1; }
+    [ "$i" -gt 180 ] && fail "$1 did not finish"
     sleep 5
   done
-  fly machine status "$id" -a "$APP" 2>/dev/null | awk '/exit_code/ {print $NF; exit}'
+  echo "$m" | jq -r '[.events[]? | select(.type == "exit")][0].request.exit_event.exit_code // 0'
 }
 
 echo "== creating $APP in $FLY_ORG/$REGION ($CONFIG)"
@@ -109,17 +113,17 @@ HATCHET_ENV="-e DATABASE_URL=$DB -e SERVER_MSGQUEUE_KIND=postgres -e SERVER_AUTH
 echo "== migrate and seed"
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-migrate:$HATCHET /hatchet/hatchet-migrate -a "$APP" -n migrate \
   -r "$REGION" --vm-size shared-cpu-2x --restart no --detach -e DATABASE_URL="$DB" >/dev/null
-[ "$(wait_exit migrate)" = 0 ] || { echo "migrate failed" >&2; exit 1; }
+[ "$(wait_exit migrate)" = 0 ] || fail "migrate failed"
 # shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin seed -a "$APP" -n seed \
   -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
-[ "$(wait_exit seed)" = 0 ] || { echo "seed failed" >&2; exit 1; }
+[ "$(wait_exit seed)" = 0 ] || fail "seed failed"
 # shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin token create --tenant-id $TENANT \
   -a "$APP" -n token -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
 wait_exit token >/dev/null
 TOKEN=$(fly logs -a "$APP" --machine "$(machine_id token)" --no-tail 2>/dev/null | grep -oE 'ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | tail -1)
-[ -n "$TOKEN" ] || { echo "could not read the API token" >&2; exit 1; }
+[ -n "$TOKEN" ] || fail "could not read the API token"
 
 echo "== hatchet engine and api"
 # shellcheck disable=SC2086
