@@ -16,6 +16,7 @@
 #   WORKERS         worker machines (default 3)
 #   KEEP=1          leave the app running after the run, for debugging
 #   AQUIFER_FLUSH_MS  Aquifer's disk flush interval in C (default: Aquifer's 100 ms; 0 = fsync every write)
+#   TENANT_MAX_RUNS concurrent documents per tenant in the workflow (default 50)
 #   ENGINE_DB_CONNS, TRIGGER_SLOTS, BUFFER_SIZE, BUFFER_FLUSH
 #                   tuned engine settings (see TUNING.md); fixed by calibration
 #
@@ -194,7 +195,7 @@ echo "== workers"
 i=1
 while [ "$i" -le "$WORKERS" ]; do
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n "worker-$i" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-failure --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 \
+    --restart on-failure --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 -e TENANT_MAX_RUNS="${TENANT_MAX_RUNS:-50}" \
     -e CALLBACK_URL="http://$DRIVER_HOST:8080/done" -e HATCHET_CLIENT_TOKEN="$TOKEN" \
     -e HATCHET_CLIENT_TLS_STRATEGY=none -e HATCHET_CLIENT_HOST_PORT="$ENGINE_HOST:7070" >/dev/null
   i=$((i + 1))
@@ -239,6 +240,7 @@ fly machine list -a "$APP" --json > "$OUT/machines.json"
   echo "region=$REGION"
   echo "workers=$WORKERS"
   echo "rate=${RATE:-50}"
+  echo "tenant_max_runs=${TENANT_MAX_RUNS:-50}"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
 } > "$OUT/run.txt"
 status=$(cat "$OUT/DONE")
