@@ -95,6 +95,8 @@ HATCHET_API=http://localhost:8080 LISTEN=:8090 RATE=20 SCALE=0.02 go run ./cmd/d
 (cd deploy/local && docker compose down -v)
 ```
 
+On a host that blocks `docker exec`, such as a Fly Sprite, the Postgres healthcheck never passes; use `COMPOSE_FILE=compose.yml:compose.sprite.yml deploy/local/setup.sh` instead (Docker Compose 2.24.4 or later).
+
 Two checks on this setup (2026-10-23, scaled schedule, about 1.5 minutes):
 
 | Run | Result |
