@@ -131,16 +131,18 @@ HATCHET_ENV="-e DATABASE_URL=$DB -e SERVER_MSGQUEUE_KIND=postgres -e SERVER_AUTH
   -e SERVER_GRPC_INSECURE=t -e SERVER_GRPC_PORT=7070 -e SERVER_PORT=8080 -e SERVER_URL=http://localhost:8080"
 
 echo "== migrate and seed"
+# A one-shot can exit before fly machine run sees it start, which fly reports
+# as an error; wait_exit reads the real exit code instead.
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-migrate:$HATCHET /hatchet/hatchet-migrate -a "$APP" -n migrate \
-  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach -e DATABASE_URL="$DB" >/dev/null
+  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach -e DATABASE_URL="$DB" >/dev/null || true
 [ "$(wait_exit migrate)" = 0 ] || fail "migrate failed"
 # shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin seed -a "$APP" -n seed \
-  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
+  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null || true
 [ "$(wait_exit seed)" = 0 ] || fail "seed failed"
 # shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET -a "$APP" -n token -r "$REGION" \
-  --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV -- /hatchet/hatchet-admin token create --tenant-id $TENANT >/dev/null
+  --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV -- /hatchet/hatchet-admin token create --tenant-id $TENANT >/dev/null || true
 [ "$(wait_exit token)" = 0 ] || fail "token create failed"
 TOKEN=$(fly logs -a "$APP" --machine "$(machine_id token)" --no-tail 2>/dev/null | grep -oE 'ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | tail -1)
 [ -n "$TOKEN" ] || fail "could not read the API token"
