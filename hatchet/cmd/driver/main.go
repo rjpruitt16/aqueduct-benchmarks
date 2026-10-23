@@ -112,10 +112,19 @@ func main() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if runID := hook.runID(); runID != "" {
-			l.attachRun(hook.JobID, runID, time.Now())
-		} else if id := l.docForJob(hook.JobID); id != "" {
-			l.finish(id, outcomeGaveUp, time.Now())
+		id, known := l.docForJob(hook.JobID)
+		if !known {
+			// Aquifer dispatched before submit recorded the job ID. Answer
+			// 503 so Aquifer redelivers once the ledger knows the job.
+			http.Error(w, "job not recorded yet", http.StatusServiceUnavailable)
+			return
+		}
+		if id != "" {
+			if runID := hook.runID(); runID != "" {
+				l.attachRun(hook.JobID, runID, time.Now())
+			} else {
+				l.finish(id, outcomeGaveUp, time.Now())
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})

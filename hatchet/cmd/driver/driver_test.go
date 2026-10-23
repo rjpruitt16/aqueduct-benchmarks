@@ -51,3 +51,19 @@ func TestReportCountsOpenDocumentsOnce(t *testing.T) {
 		t.Errorf("want 2 offered, 1 completed, 1 outstanding; got %+v %+v", tt.Offered, tt.Outcomes)
 	}
 }
+
+func TestEarlyAquiferWebhookIsRetried(t *testing.T) {
+	l := newLedger()
+	l.offer(&doc{id: "d1", tenant: "x", offered: time.Now()})
+	if _, known := l.docForJob("job-1"); known {
+		t.Fatal("a job not yet recorded must be unknown, so its webhook is retried")
+	}
+	l.acceptByAquifer("d1", "job-1", 1, time.Now())
+	if id, known := l.docForJob("job-1"); !known || id != "d1" {
+		t.Fatalf("got %q %v, want d1 known", id, known)
+	}
+	l.finish("d1", outcomeCompleted, time.Now())
+	if id, known := l.docForJob("job-1"); !known || id != "" {
+		t.Fatalf("a finished job is known with no open document; got %q %v", id, known)
+	}
+}

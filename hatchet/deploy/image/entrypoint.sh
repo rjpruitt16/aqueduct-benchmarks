@@ -8,6 +8,7 @@ case "${ROLE:-}" in
   aquifer) exec aquifer ;;
   pgsampler) exec pgsampler ;;
   driver)
+    mkdir -p "${OUT:-out}"
     sampler=""
     if [ -n "${DATABASE_URL:-}" ]; then
       pgsampler & sampler=$!

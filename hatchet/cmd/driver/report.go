@@ -115,11 +115,12 @@ type tenantTotal struct {
 	// LongestGapSeconds is the longest stretch during overload in which this
 	// tenant completed nothing.
 	LongestGapSeconds float64 `json:"longest_gap_s"`
-	// ToHatchetP99ms is the p99 time from first offer until Hatchet accepted
-	// the document: the producer's own retries without Aquifer, or the wait
-	// in Aquifer with it.
-	ToHatchetP99ms float64 `json:"to_hatchet_p99_ms"`
-	AvgAttempts    float64 `json:"avg_attempts"`
+	// ToRunIDP99ms is the p99 time from first offer until the driver learned
+	// the document's Hatchet run ID: the trigger response without Aquifer;
+	// with Aquifer, the wait in Aquifer plus the webhook delivering
+	// Hatchet's response, so a slow webhook shows up here too.
+	ToRunIDP99ms float64 `json:"to_run_id_p99_ms"`
+	AvgAttempts  float64 `json:"avg_attempts"`
 }
 
 func buildReport(l *ledger, phases []phase, start, end time.Time) report {
@@ -186,6 +187,9 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 		ph := phaseOf(d.offered)
 		tt.Offered[ph]++
 		tt.Outcomes["outstanding"]++
+		if !d.triggered.IsZero() {
+			toHatchet[d.tenant] = append(toHatchet[d.tenant], ms(d.triggered.Sub(d.offered)))
+		}
 		if overload(ph) {
 			demand[d.tenant]++
 		}
@@ -199,7 +203,7 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 			tt.SlowdownP99 = o / s
 		}
 		tt.LongestGapSeconds = longestGap(completions[name], windows)
-		tt.ToHatchetP99ms = percentile(toHatchet[name], 0.99)
+		tt.ToRunIDP99ms = percentile(toHatchet[name], 0.99)
 		if a := attempts[name]; a[1] > 0 {
 			tt.AvgAttempts = a[0] / a[1]
 		}

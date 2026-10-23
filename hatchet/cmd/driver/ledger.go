@@ -43,6 +43,7 @@ type ledger struct {
 	open       map[string]*doc
 	byRun      map[string]string // run ID -> doc ID, for callbacks
 	byJob      map[string]string // Aquifer job ID -> doc ID, for Aquifer's webhook
+	seenJobs   map[string]bool   // every Aquifer job ID accepted, to tell early webhooks from late ones
 	duplicates int               // completions reported more than once
 	finished   []finished        // terminal documents, for the report
 }
@@ -57,7 +58,7 @@ type finished struct {
 }
 
 func newLedger() *ledger {
-	return &ledger{open: map[string]*doc{}, byRun: map[string]string{}, byJob: map[string]string{}}
+	return &ledger{open: map[string]*doc{}, byRun: map[string]string{}, byJob: map[string]string{}, seenJobs: map[string]bool{}}
 }
 
 func (l *ledger) offer(d *doc) {
@@ -91,6 +92,7 @@ func (l *ledger) acceptByAquifer(id, jobID string, attempts int, at time.Time) {
 	}
 	d.accepted, d.jobID, d.attempts = at, jobID, attempts
 	l.byJob[jobID] = id
+	l.seenJobs[jobID] = true
 }
 
 // attachRun records that Aquifer's forward reached Hatchet. It returns the
@@ -112,11 +114,13 @@ func (l *ledger) attachRun(jobID, runID string, at time.Time) string {
 	return id
 }
 
-// docForJob returns the document behind an Aquifer job.
-func (l *ledger) docForJob(jobID string) string {
+// docForJob returns the document behind an Aquifer job, and whether the job
+// is known at all. A webhook can arrive before submit has recorded its job
+// ID; known is false then, and the webhook should be retried.
+func (l *ledger) docForJob(jobID string) (id string, known bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.byJob[jobID]
+	return l.byJob[jobID], l.seenJobs[jobID]
 }
 
 // finish records a terminal outcome. A document that already finished counts
@@ -163,8 +167,9 @@ func (l *ledger) outstanding() int {
 
 // openDoc is an unfinished document, for the final report.
 type openDoc struct {
-	tenant  string
-	offered time.Time
+	tenant    string
+	offered   time.Time
+	triggered time.Time
 }
 
 // snapshotAll returns every finished and every open document under one lock,
@@ -175,7 +180,7 @@ func (l *ledger) snapshotAll() ([]finished, []openDoc) {
 	done := append([]finished(nil), l.finished...)
 	open := make([]openDoc, 0, len(l.open))
 	for _, d := range l.open {
-		open = append(open, openDoc{tenant: d.tenant, offered: d.offered})
+		open = append(open, openDoc{tenant: d.tenant, offered: d.offered, triggered: d.triggered})
 	}
 	return done, open
 }

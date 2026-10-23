@@ -72,7 +72,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("connect: %v", err)
 	}
-	defer conn.Close(context.Background())
+	// A query that times out closes the connection, which is most likely
+	// while the database is overloaded: exactly what this records. Reconnect
+	// before each sample instead of losing the rest of the run.
+	defer func() { conn.Close(context.Background()) }()
+	ensure := func(c context.Context) bool {
+		if !conn.IsClosed() {
+			return true
+		}
+		fresh, err := pgx.Connect(c, url)
+		if err != nil {
+			return false
+		}
+		conn = fresh
+		return true
+	}
 	if _, err := conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
 		log.Printf("pg_stat_statements unavailable: %v", err)
 	} else if _, err := conn.Exec(ctx, "SELECT pg_stat_statements_reset()"); err != nil {
@@ -92,9 +106,17 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			writeTopStatements(conn, filepath.Join(out, "statements.json"))
+			final, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if ensure(final) {
+				writeTopStatements(conn, filepath.Join(out, "statements.json"))
+			}
+			cancel()
 			return
 		case <-ticker.C:
+		}
+		if !ensure(ctx) {
+			_ = enc.Encode(sample{At: time.Now().UTC(), Errors: map[string]string{"connect": "reconnect failed"}})
+			continue
 		}
 		s, cur := take(ctx, conn, prev)
 		prev = cur

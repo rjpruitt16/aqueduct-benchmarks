@@ -15,6 +15,7 @@
 #   PHASES, SCALE   passed to the driver (defaults: the agreed 75-minute run)
 #   WORKERS         worker machines (default 3)
 #   KEEP=1          leave the app running after the run, for debugging
+#   AQUIFER_FLUSH_MS  Aquifer's disk flush interval in C (default: Aquifer's 100 ms; 0 = fsync every write)
 #   ENGINE_DB_CONNS, TRIGGER_SLOTS, BUFFER_SIZE, BUFFER_FLUSH
 #                   tuned engine settings (see TUNING.md); fixed by calibration
 #
@@ -41,6 +42,15 @@ OUT=results/$NAME
 case "$CONFIG" in B | C) ;; *) echo "CONFIG must be B or C" >&2; exit 2 ;; esac
 umask 077
 mkdir -p "$OUT"
+
+# A failed run, or one whose results could not all be copied, keeps the app
+# (and its driver.log) for inspection instead of destroying it.
+fail() {
+  echo "$1" >&2
+  KEEP=1
+  echo "keeping $APP for inspection; destroy it with: fly apps destroy $APP -y" >&2
+  exit 1
+}
 
 cleanup() {
   if [ "${KEEP:-}" != 1 ]; then
@@ -148,7 +158,8 @@ if [ "$CONFIG" = C ]; then
     "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" > "$aqcfg"
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n aquifer -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" \
-    -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/tmp/aquifer -e CONFIG_PATH=/etc/aquifer.yaml >/dev/null
+    -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/tmp/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
+    ${AQUIFER_FLUSH_MS:+-e AQUIFER_PEBBLE_FLUSH_INTERVAL_MS=$AQUIFER_FLUSH_MS} >/dev/null
   rm -f "$aqcfg"
   AQUIFER_HOST=$(host aquifer)
 fi
@@ -182,14 +193,16 @@ echo "   started $started; waiting for the driver to finish"
 i=0
 until fly ssh console -a "$APP" --machine "$(machine_id driver)" -C "test -f /out/DONE" >/dev/null 2>&1; do
   i=$((i + 1))
-  [ "$i" -gt 1800 ] && { echo "driver did not finish within 5 hours" >&2; exit 1; }
+  [ "$i" -gt 1800 ] && fail "driver did not finish within 5 hours"
   sleep 10
 done
 
 echo "== copying results to $OUT"
+missing=""
 for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE; do
-  fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 || echo "   missing $f" >&2
+  fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 || missing="$missing $f"
 done
+[ -z "$missing" ] || fail "could not copy:$missing"
 fly machine list -a "$APP" --json > "$OUT/machines.json"
 {
   echo "config=$CONFIG"
@@ -200,5 +213,8 @@ fly machine list -a "$APP" --json > "$OUT/machines.json"
   echo "region=$REGION"
   echo "workers=$WORKERS"
   echo "rate=${RATE:-50}"
+  [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
 } > "$OUT/run.txt"
+status=$(cat "$OUT/DONE")
+[ "$status" = 0 ] || fail "driver exited with status $status; see $OUT/driver.log"
 echo "== done: $OUT"

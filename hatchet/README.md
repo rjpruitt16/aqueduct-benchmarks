@@ -53,7 +53,7 @@ The reproduction is in [`repro/`](repro/).
 
 ### Submitting through Aquifer (C0 and C)
 
-With `AQUIFER_URL` set, the driver posts each document to Aquifer's `/jobs` (`user_id` is the tenant, `idempotent_key` the document) aimed at Hatchet's REST trigger, and receives Hatchet's response through Aquifer's webhook at `PUBLIC_URL/aquifer`. Aquifer's `201` counts as durable acceptance. A job Aquifer gives up on is counted as `gave_up`, separately from `rejected`, because the producer was told it was accepted. `to_hatchet_p99_ms` in the summary is the time from first offer until Hatchet accepted the document: the producer's own retries without Aquifer, or the wait in Aquifer with it.
+With `AQUIFER_URL` set, the driver posts each document to Aquifer's `/jobs` (`user_id` is the tenant, `idempotent_key` the document) aimed at Hatchet's REST trigger, and receives Hatchet's response through Aquifer's webhook at `PUBLIC_URL/aquifer`. Aquifer's `201` counts as acceptance. With Aquifer's default 100 ms flush, a job reaches disk within 100 ms of the `201`, so a crash in that window could lose it; set `AQUIFER_FLUSH_MS=0` in the Fly run to make every `201` wait for its own fsync, at lower throughput. The runs use Aquifer's default unless stated. A job Aquifer gives up on is counted as `gave_up`, separately from `rejected`, because the producer was told it was accepted. `to_run_id_p99_ms` in the summary is the time from first offer until the driver learned the document's Hatchet run ID: the producer's own retries without Aquifer, or, with it, the wait in Aquifer plus the webhook back.
 
 ## Fork: hatchet-aquifer
 

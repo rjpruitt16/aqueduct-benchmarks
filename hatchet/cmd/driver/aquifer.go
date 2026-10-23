@@ -13,8 +13,9 @@ import (
 )
 
 // aquiferAPI submits documents through Aquifer instead of straight to
-// Hatchet (configurations C0 and C). Aquifer stores the job durably, answers
-// 201, and later forwards it to Hatchet's REST trigger at a pace Hatchet can
+// Hatchet (configurations C0 and C). Aquifer stores the job, answers 201
+// (with its default 100 ms flush the write reaches disk within 100 ms; see
+// AQUIFER_PEBBLE_FLUSH_INTERVAL_MS), and later forwards it to Hatchet's REST trigger at a pace Hatchet can
 // take, queueing each tenant separately. Hatchet's response, with the run ID,
 // comes back through Aquifer's webhook.
 type aquiferAPI struct {
