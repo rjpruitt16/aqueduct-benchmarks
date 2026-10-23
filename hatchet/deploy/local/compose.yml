@@ -34,12 +34,12 @@ services:
     command: /hatchet/hatchet-engine
     env_file: hatchet.env
     environment: *hatchet-env
-    ports: ["7077:7070"]
+    ports: ["127.0.0.1:7077:7070"]
     depends_on: {seed: {condition: service_completed_successfully}}
   api:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.110.8
     command: /hatchet/hatchet-api
     env_file: hatchet.env
     environment: *hatchet-env
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
     depends_on: {seed: {condition: service_completed_successfully}}

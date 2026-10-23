@@ -4,6 +4,7 @@
 # variables, the same way it runs on Fly, and writes an API token to
 # token.txt.
 set -eu
+umask 077 # hatchet.env and token.txt hold secrets
 cd "$(dirname "$0")"
 VERSION=v0.110.8
 if [ ! -f hatchet.env ]; then
@@ -20,7 +21,23 @@ if [ ! -f hatchet.env ]; then
   rm -rf "$keys"
 fi
 docker compose up -d
-until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/ready)" = 200 ]; do sleep 2; done
-docker compose run --rm --no-deps seed /hatchet/hatchet-admin token create \
-  --tenant-id 707d0855-80ab-4e1f-a156-f1c4546cbf52 2>/dev/null | tail -1 > token.txt
+tries=0
+until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/ready)" = 200 ]; do
+  tries=$((tries + 1))
+  if [ "$tries" -ge 90 ]; then
+    echo "Hatchet API not ready after 3 minutes:" >&2
+    docker compose ps >&2
+    exit 1
+  fi
+  sleep 2
+done
+out=$(docker compose run --rm --no-deps seed /hatchet/hatchet-admin token create \
+  --tenant-id 707d0855-80ab-4e1f-a156-f1c4546cbf52 2>/dev/null)
+token=$(printf '%s\n' "$out" | tail -1)
+case "$token" in
+  *.*.*) ;;
+  *) echo "token creation failed: $out" >&2; exit 1 ;;
+esac
+[ -f token.txt ] && chmod 600 token.txt
+printf '%s\n' "$token" > token.txt
 echo "Hatchet is up: REST http://localhost:8080, gRPC localhost:7077, token in $(pwd)/token.txt"

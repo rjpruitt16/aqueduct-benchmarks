@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -38,6 +39,11 @@ func main() {
 	config := env("CONFIG", "A")
 	step := time.Duration(envInt("STEP_MS", 50)) * time.Millisecond
 	callback := os.Getenv("CALLBACK_URL")
+	if callback != "" {
+		if u, err := url.Parse(callback); err != nil || u.Scheme == "" || u.Host == "" {
+			log.Fatalf("CALLBACK_URL %q is not an absolute URL", callback)
+		}
+	}
 
 	client, err := hatchet.NewClient()
 	if err != nil {
@@ -78,7 +84,8 @@ func main() {
 			body, _ := json.Marshal(pipeline.Completion{DocID: doc.DocID, RunID: ctx.WorkflowRunId()})
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost, callback, bytes.NewReader(body))
 			if err != nil {
-				return stepOutput{}, err
+				log.Printf("callback for %s: %v", doc.DocID, err)
+				return stepOutput{Step: "index"}, nil
 			}
 			req.Header.Set("Content-Type", "application/json")
 			if resp, err := httpClient.Do(req); err != nil {
