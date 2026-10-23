@@ -15,6 +15,8 @@
 #   PHASES, SCALE   passed to the driver (defaults: the agreed 75-minute run)
 #   WORKERS         worker machines (default 3)
 #   KEEP=1          leave the app running after the run, for debugging
+#   ENGINE_DB_CONNS, TRIGGER_SLOTS, BUFFER_SIZE, BUFFER_FLUSH
+#                   tuned engine settings (see TUNING.md); fixed by calibration
 #
 # Machines (all dedicated CPUs, so runs are repeatable):
 #   pg       performance-2x, 4 GB, 20 GB volume   Postgres 16 (also Hatchet's message queue)
@@ -111,8 +113,12 @@ TOKEN=$(fly logs -a "$APP" --machine "$(machine_id token)" --no-tail 2>/dev/null
 
 echo "== hatchet engine and api"
 # shellcheck disable=SC2086
+# Tuned engine settings from TUNING.md; the calibration run sets the values.
+ENGINE_TUNING="-e DATABASE_MAX_CONNS=${ENGINE_DB_CONNS:-100} -e SERVER_GRPC_TRIGGER_WRITE_SLOTS=${TRIGGER_SLOTS:-5} \
+  -e SERVER_DEFAULT_BUFFER_SIZE=${BUFFER_SIZE:-10} -e SERVER_DEFAULT_BUFFER_FLUSH_INTERVAL=${BUFFER_FLUSH:-10ms}"
+# shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-engine:$HATCHET /hatchet/hatchet-engine -a "$APP" -n engine \
-  -r "$REGION" --vm-size performance-2x --vm-memory 4096 --restart on-fail --detach $HATCHET_ENV >/dev/null
+  -r "$REGION" --vm-size performance-2x --vm-memory 4096 --restart on-fail --detach $HATCHET_ENV $ENGINE_TUNING >/dev/null
 ENGINE_HOST=$(host engine)
 API_IMAGE=ghcr.io/hatchet-dev/hatchet/hatchet-api:$HATCHET
 API_SIZE="--vm-size performance-1x --vm-memory 2048"
