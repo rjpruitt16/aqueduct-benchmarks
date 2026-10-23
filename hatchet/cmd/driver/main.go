@@ -265,9 +265,7 @@ func (r *run) submitLoop(ctx context.Context) {
 			}
 			retryable, ok := err.(*errRetryable)
 			if !ok || attempt >= r.maxAttempts {
-				if !ok {
-					log.Printf("trigger %s: %v", d.id, err)
-				}
+				log.Printf("rejected %s after %d attempt(s): %v", d.id, attempt, err)
 				r.l.finish(d.id, outcomeRejected, time.Now())
 				break
 			}
