@@ -6,7 +6,9 @@ import (
 )
 
 // Outcomes a document can end in. A document starts "offered", becomes
-// "accepted" once Hatchet (or Aquifer) has durably stored it, and ends in one
+// "accepted" once Hatchet or Aquifer has accepted it (Hatchet commits to
+// Postgres before answering; Aquifer's default flush reaches disk within
+// 100 ms of its 201, see AQUIFER_FLUSH_MS in run.sh), and ends in one
 // of the terminal outcomes.
 const (
 	outcomeCompleted    = "completed"
@@ -81,7 +83,7 @@ func (l *ledger) accept(id, runID string, attempts int, at time.Time) {
 	}
 }
 
-// acceptByAquifer records Aquifer's durable acceptance; the Hatchet run ID
+// acceptByAquifer records Aquifer's acceptance (its 201); the Hatchet run ID
 // arrives later through attachRun.
 func (l *ledger) acceptByAquifer(id, jobID string, attempts int, at time.Time) {
 	l.mu.Lock()

@@ -153,12 +153,15 @@ DRIVER_HOST=$(host driver)
 
 if [ "$CONFIG" = C ]; then
   echo "== aquifer"
+  # Aquifer's job store lives on a volume, so jobs it has accepted survive a
+  # machine restart.
+  fly volumes create aqdata -a "$APP" -r "$REGION" -s 5 --vm-size performance-1x -y >/dev/null
   aqcfg=$(mktemp)
   printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n' \
     "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" > "$aqcfg"
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n aquifer -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" \
-    -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/tmp/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
+    --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" -v aqdata:/data \
+    -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/data/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
     ${AQUIFER_FLUSH_MS:+-e AQUIFER_PEBBLE_FLUSH_INTERVAL_MS=$AQUIFER_FLUSH_MS} >/dev/null
   rm -f "$aqcfg"
   AQUIFER_HOST=$(host aquifer)

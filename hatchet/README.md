@@ -76,7 +76,7 @@ With `AQUIFER_URL` set, the driver posts each document to Aquifer's `/jobs` (`us
 | `engine` | performance-2x, 4 GB | Hatchet engine |
 | `api` | performance-1x, 2 GB in C; performance-2x, 4 GB in B | Hatchet REST API (the fork's image in C). B gets Aquifer's machine budget back here |
 | `worker-1..3` | performance-1x, 2 GB | pipeline workers |
-| `aquifer` | performance-1x, 2 GB | C only |
+| `aquifer` | performance-1x, 2 GB, 5 GB volume | C only; its job store is on the volume |
 | `driver` | performance-2x, 4 GB, 1 GB volume | producers, ledger, Postgres sampler |
 
 Results land in `results/<run-name>/`: `summary.json`, `intervals.jsonl`, `postgres.jsonl`, `statements.json`, `driver.log`, `machines.json` and `run.txt` (versions, images, rate).
