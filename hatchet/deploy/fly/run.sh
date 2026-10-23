@@ -119,9 +119,9 @@ fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatc
   -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
 [ "$(wait_exit seed)" = 0 ] || fail "seed failed"
 # shellcheck disable=SC2086
-fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin token create --tenant-id $TENANT \
-  -a "$APP" -n token -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
-wait_exit token >/dev/null
+fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET -a "$APP" -n token -r "$REGION" \
+  --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV -- /hatchet/hatchet-admin token create --tenant-id $TENANT >/dev/null
+[ "$(wait_exit token)" = 0 ] || fail "token create failed"
 TOKEN=$(fly logs -a "$APP" --machine "$(machine_id token)" --no-tail 2>/dev/null | grep -oE 'ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | tail -1)
 [ -n "$TOKEN" ] || fail "could not read the API token"
 
