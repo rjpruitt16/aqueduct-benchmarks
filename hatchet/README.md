@@ -49,6 +49,23 @@ The reproduction is in [`repro/`](repro/).
 - [`cmd/worker`](cmd/worker): runs the four-step document workflow. `CONFIG=A` uses Hatchet's defaults; `CONFIG=B` adds per-tenant round-robin concurrency (`input.tenant`) and a long scheduling timeout. The index step reports each completion to the driver.
 - [`cmd/driver`](cmd/driver): the producers and the ledger. It offers documents for seven tenants on the phased schedule (`PHASES`, scaled by `SCALE`), submits them through Hatchet's REST trigger with exponential backoff that honors `Retry-After`, polls run status every few seconds like an application would, and classifies every document as completed, failed, never started (#4287) or rejected. It writes `intervals.jsonl` every 10 seconds and `summary.json` at the end: per-tenant outcomes, p50/p99 by phase, slowdown during overload, longest gap without a completion, Jain's index, and drain time.
 
+- [`cmd/pgsampler`](cmd/pgsampler): every 10 seconds, one line of Postgres load (connections by state, waiting sessions by type, lock waits, commits and rows per second, cache hit ratio, database size, and the size and live rows of Hatchet's busiest tables). On exit it writes the 30 statements with the most execution time from `pg_stat_statements`.
+
+### Submitting through Aquifer (C0 and C)
+
+With `AQUIFER_URL` set, the driver posts each document to Aquifer's `/jobs` (`user_id` is the tenant, `idempotent_key` the document) aimed at Hatchet's REST trigger, and receives Hatchet's response through Aquifer's webhook at `PUBLIC_URL/aquifer`. Aquifer's `201` counts as durable acceptance. A job Aquifer gives up on is counted as `gave_up`, separately from `rejected`, because the producer was told it was accepted. `to_hatchet_p99_ms` in the summary is the time from first offer until Hatchet accepted the document: the producer's own retries without Aquifer, or the wait in Aquifer with it.
+
+## Fork: hatchet-aquifer
+
+[rjpruitt16/hatchet-aquifer](https://github.com/rjpruitt16/hatchet-aquifer) (branch `aqueduct/v0.110.8`, see its `AQUEDUCT.md`) is an unofficial fork carrying the Aqueduct patches. Images: `ghcr.io/rjpruitt16/hatchet-aquifer-api:v0.110.8-aqueduct-<commit>`.
+
+1. **429 for ResourceExhausted on the REST trigger.** Checked against a running Hatchet with `SERVER_ENFORCE_LIMITS=t` and a task-run limit of 8: stock v0.110.8 answers the triggers past the limit with **400**, the fork with **429**.
+
+## What we learned about Hatchet's own backpressure
+
+- **Bursts are not rejected.** The engine allows `SERVER_GRPC_TRIGGER_WRITE_SLOTS` (default 5) concurrent fast-path trigger writes. Past that, an ordinary trigger falls back to Hatchet's message queue, which is Postgres in this setup, instead of failing. `ResourceExhausted` only comes from enforced tenant limits, or from an idempotent trigger that can't get a slot. So Hatchet accepts a burst and carries it as extra database writes; the trigger-slot setting is part of B's tuning.
+- **Tenant limits are off for self-hosters by default** (`SERVER_ENFORCE_LIMITS=false`). If enabled, the defaults are small (2,000 task runs per 24 hours), so they must stay off or be raised for the benchmark.
+
 ### Local full self-hosted Hatchet
 
 [`deploy/local`](deploy/local) runs the same shape as the Fly runs: Postgres, migrations, seed, engine and API as separate containers, configured only by environment variables (no shared config volume), with Postgres as the message queue and `pg_stat_statements` loaded.
