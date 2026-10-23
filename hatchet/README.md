@@ -49,6 +49,40 @@ The reproduction is in [`repro/`](repro/).
 - [`cmd/worker`](cmd/worker): runs the four-step document workflow. `CONFIG=A` uses Hatchet's defaults; `CONFIG=B` adds per-tenant round-robin concurrency (`input.tenant`) and a long scheduling timeout. The index step reports each completion to the driver.
 - [`cmd/driver`](cmd/driver): the producers and the ledger. It offers documents for seven tenants on the phased schedule (`PHASES`, scaled by `SCALE`), submits them through Hatchet's REST trigger with exponential backoff that honors `Retry-After`, polls run status every few seconds like an application would, and classifies every document as completed, failed, never started (#4287) or rejected. It writes `intervals.jsonl` every 10 seconds and `summary.json` at the end: per-tenant outcomes, p50/p99 by phase, slowdown during overload, longest gap without a completion, Jain's index, and drain time.
 
+- [`cmd/pgsampler`](cmd/pgsampler): every 10 seconds, one line of Postgres load (connections by state, waiting sessions by type, lock waits, commits and rows per second, cache hit ratio, database size, and the size and live rows of Hatchet's busiest tables). On exit it writes the 30 statements with the most execution time from `pg_stat_statements`.
+
+### Submitting through Aquifer (C0 and C)
+
+With `AQUIFER_URL` set, the driver posts each document to Aquifer's `/jobs` (`user_id` is the tenant, `idempotent_key` the document) aimed at Hatchet's REST trigger, and receives Hatchet's response through Aquifer's webhook at `PUBLIC_URL/aquifer`. Aquifer's `201` counts as acceptance. With Aquifer's default 100 ms flush, a job reaches disk within 100 ms of the `201`, so a crash in that window could lose it; set `AQUIFER_FLUSH_MS=0` in the Fly run to make every `201` wait for its own fsync, at lower throughput. The runs use Aquifer's default unless stated. A job Aquifer gives up on is counted as `gave_up`, separately from `rejected`, because the producer was told it was accepted. `to_run_id_p99_ms` in the summary is the time from first offer until the driver learned the document's Hatchet run ID: the producer's own retries without Aquifer, or, with it, the wait in Aquifer plus the webhook back.
+
+## Fork: hatchet-aquifer
+
+[rjpruitt16/hatchet-aquifer](https://github.com/rjpruitt16/hatchet-aquifer) (branch `aqueduct/v0.110.8`, see its `AQUEDUCT.md`) is an unofficial fork carrying the Aqueduct patches. Images: `ghcr.io/rjpruitt16/hatchet-aquifer-api:v0.110.8-aqueduct-<commit>`.
+
+1. **429 for ResourceExhausted on the REST trigger.** Checked against a running Hatchet with `SERVER_ENFORCE_LIMITS=t` and a task-run limit of 8: stock v0.110.8 answers the triggers past the limit with **400**, the fork with **429**.
+
+## What we learned about Hatchet's own backpressure
+
+- **Bursts are not rejected.** The engine allows `SERVER_GRPC_TRIGGER_WRITE_SLOTS` (default 5) concurrent fast-path trigger writes. Past that, an ordinary trigger falls back to Hatchet's message queue, which is Postgres in this setup, instead of failing. `ResourceExhausted` only comes from enforced tenant limits, or from an idempotent trigger that can't get a slot. So Hatchet accepts a burst and carries it as extra database writes; the trigger-slot setting is part of B's tuning.
+- **Tenant limits are off for self-hosters by default** (`SERVER_ENFORCE_LIMITS=false`). If enabled, the defaults are small (2,000 task runs per 24 hours), so they must stay off or be raised for the benchmark.
+
+### Fly runs (script written, not yet run)
+
+[`deploy/fly/run.sh`](deploy/fly/run.sh) runs one measured configuration (`B` or `C`) in a private Fly app and destroys it afterward. The harness image, with the worker, driver, Postgres sampler and Aquifer from a pinned commit, is built by `.github/workflows/hatchet-image.yml` as `ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:<commit>`.
+
+| Machine | Size | Role |
+|---|---|---|
+| `pg` | performance-2x, 4 GB, 20 GB volume | Postgres 16, also Hatchet's message queue |
+| `engine` | performance-2x, 4 GB | Hatchet engine |
+| `api` | performance-1x, 2 GB in C; performance-2x, 4 GB in B | Hatchet REST API (the fork's image in C). B gets Aquifer's machine budget back here |
+| `worker-1..3` | performance-1x, 2 GB | pipeline workers |
+| `aquifer` | performance-1x, 2 GB, 5 GB volume | C only; its job store is on the volume |
+| `driver` | performance-2x, 4 GB, 1 GB volume | producers, ledger, Postgres sampler |
+
+Results land in `results/<run-name>/`: `summary.json`, `intervals.jsonl`, `postgres.jsonl`, `statements.json`, `driver.log`, `machines.json` and `run.txt` (versions, images, rate).
+
+On Fly the engine must listen on IPv6 (`SERVER_GRPC_BIND_ADDRESS=[::]`), because the private network is IPv6-only; checked locally that workers connect to an engine bound that way.
+
 ### Local full self-hosted Hatchet
 
 [`deploy/local`](deploy/local) runs the same shape as the Fly runs: Postgres, migrations, seed, engine and API as separate containers, configured only by environment variables (no shared config volume), with Postgres as the message queue and `pg_stat_statements` loaded.
@@ -60,6 +94,8 @@ CONFIG=B STEP_MS=20 CALLBACK_URL=http://localhost:8090/done go run ./cmd/worker 
 HATCHET_API=http://localhost:8080 LISTEN=:8090 RATE=20 SCALE=0.02 go run ./cmd/driver
 (cd deploy/local && docker compose down -v)
 ```
+
+On a host that blocks `docker exec`, such as a Fly Sprite, the Postgres healthcheck never passes; use `COMPOSE_FILE=compose.yml:compose.sprite.yml deploy/local/setup.sh` instead (Docker Compose 2.24.4 or later).
 
 Two checks on this setup (2026-10-23, scaled schedule, about 1.5 minutes):
 

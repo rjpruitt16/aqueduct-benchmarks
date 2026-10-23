@@ -2,7 +2,10 @@ module github.com/rjpruitt16/aqueduct-benchmarks/hatchet
 
 go 1.26.7
 
-require github.com/hatchet-dev/hatchet v0.110.8
+require (
+	github.com/hatchet-dev/hatchet v0.110.8
+	github.com/jackc/pgx/v5 v5.11.0
+)
 
 require (
 	cel.dev/expr v0.25.2 // indirect
@@ -36,7 +39,6 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.11.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/labstack/echo/v4 v4.16.0 // indirect

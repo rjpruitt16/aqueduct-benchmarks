@@ -1,0 +1,13 @@
+# For hosts where `docker exec` is not allowed (for example a Fly Sprite):
+# container healthchecks run through exec, so Postgres never reports healthy.
+# Start in order instead and let the migration retry until Postgres accepts
+# connections. Needs Docker Compose 2.24.4 or later (for !override).
+#   COMPOSE_FILE=compose.yml:compose.sprite.yml ./setup.sh
+services:
+  postgres:
+    healthcheck:
+      disable: true
+  migrate:
+    restart: on-failure
+    depends_on: !override
+      postgres: {condition: service_started}

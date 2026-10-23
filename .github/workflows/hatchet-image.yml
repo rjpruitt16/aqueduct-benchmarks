@@ -1,0 +1,52 @@
+name: hatchet image
+
+on:
+  push:
+    branches: [main]
+    paths: ["hatchet/**", ".github/workflows/hatchet-image.yml"]
+  pull_request:
+    paths: ["hatchet/**", ".github/workflows/hatchet-image.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: hatchet/go.mod
+      - run: go vet ./... && go test ./...
+        working-directory: hatchet
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: hatchet/deploy/image/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ghcr.io/${{ github.repository_owner }}/aqueduct-benchmarks-hatchet:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
