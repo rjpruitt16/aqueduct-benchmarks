@@ -43,3 +43,16 @@ Steady load, a burst at three times capacity, sustained overload, and recovery. 
 | [#3922](https://github.com/hatchet-dev/hatchet/issues/3922) Parent shows success when children time out | Reproduces: `aio_run_many` returns `{}` for timed-out children and the parent completes |
 
 The reproduction is in [`repro/`](repro/).
+
+## Harness
+
+- [`cmd/worker`](cmd/worker): runs the four-step document workflow. `CONFIG=A` uses Hatchet's defaults; `CONFIG=B` adds per-tenant round-robin concurrency (`input.tenant`) and a long scheduling timeout. The index step reports each completion to the driver.
+- [`cmd/driver`](cmd/driver): the producers and the ledger. It offers documents for seven tenants on the phased schedule (`PHASES`, scaled by `SCALE`), submits them through Hatchet's REST trigger with exponential backoff that honors `Retry-After`, polls run status every few seconds like an application would, and classifies every document as completed, failed, never started (#4287) or rejected. It writes `intervals.jsonl` every 10 seconds and `summary.json` at the end: per-tenant outcomes, p50/p99 by phase, slowdown during overload, longest gap without a completion, Jain's index, and drain time.
+
+A short local run against the repro's Hatchet Lite:
+
+```sh
+export HATCHET_CLIENT_TOKEN=... HATCHET_CLIENT_TLS_STRATEGY=none HATCHET_CLIENT_HOST_PORT=localhost:7077
+CONFIG=B STEP_MS=20 CALLBACK_URL=http://localhost:8080/done go run ./cmd/worker &
+RATE=20 SCALE=0.02 go run ./cmd/driver
+```
