@@ -66,18 +66,23 @@ trap cleanup EXIT
 machine_id() { fly machine list -a "$APP" --json | jq -r --arg n "$1" '.[] | select(.name == $n) | .id'; }
 host() { echo "$(machine_id "$1").vm.$APP.internal"; }
 
-# Waits until a one-shot machine has exited and prints its exit code. Fly
-# omits exit_code from the event when it is 0, and lists events newest first.
+# Waits until a one-shot machine has stopped with an exit event and prints its
+# exit code. Fly omits exit_code from the event when it is 0, and lists events
+# newest first. A failing fly call ends the run rather than reading as a hang.
 wait_exit() {
   i=0
   while :; do
-    m=$(fly machine list -a "$APP" --json | jq --arg n "$1" '.[] | select(.name == $n)')
-    case "$(echo "$m" | jq -r .state)" in stopped | destroyed) break ;; esac
+    list=$(fly machine list -a "$APP" --json) || fail "fly machine list failed while waiting for $1"
+    code=$(echo "$list" | jq -r --arg n "$1" '.[] | select(.name == $n)
+      | select(.state == "stopped" or .state == "destroyed")
+      | [.events[]? | select(.type == "exit")][0] // empty
+      | .request.exit_event.exit_code // 0')
+    [ -n "$code" ] && break
     i=$((i + 1))
     [ "$i" -gt 180 ] && fail "$1 did not finish"
     sleep 5
   done
-  echo "$m" | jq -r '[.events[]? | select(.type == "exit")][0].request.exit_event.exit_code // 0'
+  echo "$code"
 }
 
 # Creates a volume and prints its ID once Fly reports it created; machines
