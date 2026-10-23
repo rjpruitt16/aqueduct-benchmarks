@@ -40,8 +40,8 @@ func main() {
 	step := time.Duration(envInt("STEP_MS", 50)) * time.Millisecond
 	callback := os.Getenv("CALLBACK_URL")
 	if callback != "" {
-		if u, err := url.Parse(callback); err != nil || u.Scheme == "" || u.Host == "" {
-			log.Fatalf("CALLBACK_URL %q is not an absolute URL", callback)
+		if u, err := url.Parse(callback); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			log.Fatalf("CALLBACK_URL %q must be an absolute http or https URL", callback)
 		}
 	}
 
