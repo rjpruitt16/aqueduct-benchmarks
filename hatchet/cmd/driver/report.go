@@ -115,7 +115,11 @@ type tenantTotal struct {
 	// LongestGapSeconds is the longest stretch during overload in which this
 	// tenant completed nothing.
 	LongestGapSeconds float64 `json:"longest_gap_s"`
-	AvgAttempts       float64 `json:"avg_attempts"`
+	// ToHatchetP99ms is the p99 time from first offer until Hatchet accepted
+	// the document: the producer's own retries without Aquifer, or the wait
+	// in Aquifer with it.
+	ToHatchetP99ms float64 `json:"to_hatchet_p99_ms"`
+	AvgAttempts    float64 `json:"avg_attempts"`
 }
 
 func buildReport(l *ledger, phases []phase, start, end time.Time) report {
@@ -140,6 +144,7 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	lat := map[string]map[string][]float64{}
 	completions := map[string][]time.Time{}
 	attempts := map[string][2]float64{}
+	toHatchet := map[string][]float64{}
 	served, demand := map[string]float64{}, map[string]float64{}
 	for _, d := range all {
 		tt := rep.Tenants[d.tenant]
@@ -156,6 +161,9 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 		attempts[d.tenant] = [2]float64{a[0] + float64(d.attempts), a[1] + 1}
 		if overload(ph) {
 			demand[d.tenant]++
+		}
+		if !d.triggered.IsZero() {
+			toHatchet[d.tenant] = append(toHatchet[d.tenant], ms(d.triggered.Sub(d.offered)))
 		}
 		if d.outcome == outcomeCompleted {
 			lat[d.tenant][ph] = append(lat[d.tenant][ph], ms(d.completed.Sub(d.offered)))
@@ -191,6 +199,7 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 			tt.SlowdownP99 = o / s
 		}
 		tt.LongestGapSeconds = longestGap(completions[name], windows)
+		tt.ToHatchetP99ms = percentile(toHatchet[name], 0.99)
 		if a := attempts[name]; a[1] > 0 {
 			tt.AvgAttempts = a[0] / a[1]
 		}

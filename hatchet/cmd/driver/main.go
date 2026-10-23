@@ -17,6 +17,9 @@
 //	POLLERS               concurrent status polls (default 32)
 //	MAX_ATTEMPTS          trigger attempts before a document is rejected (default 6)
 //	DRAIN_MAX             how long to wait for outstanding work after the last phase (default 30m)
+//	AQUIFER_URL           submit through Aquifer at this base URL (C0, C); unset sends straight to Hatchet
+//	PUBLIC_URL            this driver's address as Aquifer reaches it (default http://localhost:8080)
+//	AQUIFER_MAX_RETRIES   Aquifer's retries forwarding each job to Hatchet (default 20)
 package main
 
 import (
@@ -102,6 +105,20 @@ func main() {
 		l.finish(c.DocID, outcomeCompleted, time.Now())
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// Aquifer's webhook: its forward to Hatchet finished.
+	mux.HandleFunc("POST /aquifer", func(w http.ResponseWriter, r *http.Request) {
+		var hook aquiferWebhook
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&hook); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if runID := hook.runID(); runID != "" {
+			l.attachRun(hook.JobID, runID, time.Now())
+		} else if id := l.docForJob(hook.JobID); id != "" {
+			l.finish(id, outcomeGaveUp, time.Now())
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	srv := &http.Server{Addr: env("LISTEN", ":8080"), Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -112,6 +129,12 @@ func main() {
 
 	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6),
 		queue: make(chan *doc, 1<<20)}
+	if base := os.Getenv("AQUIFER_URL"); base != "" {
+		r.aq = &aquiferAPI{base: strings.TrimRight(base, "/"), hatchet: h,
+			webhookURL: strings.TrimRight(env("PUBLIC_URL", "http://localhost:8080"), "/") + "/aquifer",
+			maxRetries: envInt("AQUIFER_MAX_RETRIES", 20), http: h.http}
+		log.Printf("submitting through Aquifer at %s", base)
+	}
 	var wg sync.WaitGroup
 	for i := 0; i < envInt("SUBMITTERS", 64); i++ {
 		wg.Add(1)
@@ -148,6 +171,7 @@ func main() {
 
 type run struct {
 	h           *hatchetAPI
+	aq          *aquiferAPI // nil: submit straight to Hatchet
 	l           *ledger
 	rate        float64
 	maxAttempts int
@@ -216,10 +240,19 @@ func (r *run) submitLoop(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			runID, err := r.h.trigger(ctx, in)
-			if err == nil {
-				r.l.accept(d.id, runID, attempt, time.Now())
-				break
+			var err error
+			if r.aq != nil {
+				var jobID string
+				if jobID, err = r.aq.submit(ctx, in); err == nil {
+					r.l.acceptByAquifer(d.id, jobID, attempt, time.Now())
+					break
+				}
+			} else {
+				var runID string
+				if runID, err = r.h.trigger(ctx, in); err == nil {
+					r.l.accept(d.id, runID, attempt, time.Now())
+					break
+				}
 			}
 			retryable, ok := err.(*errRetryable)
 			if !ok || attempt >= r.maxAttempts {
