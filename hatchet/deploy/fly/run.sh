@@ -80,6 +80,20 @@ wait_exit() {
   echo "$m" | jq -r '[.events[]? | select(.type == "exit")][0].request.exit_event.exit_code // 0'
 }
 
+# Creates a volume and prints its ID once Fly reports it created; machines
+# then attach it by ID. Attaching by name right after creating it can fail
+# with "volume not found".
+volume() {
+  vid=$(fly volumes create "$1" -a "$APP" -r "$REGION" -s "$2" --vm-size "$3" -y --json | jq -r .id)
+  i=0
+  until [ "$(fly volumes show "$vid" -a "$APP" --json 2>/dev/null | jq -r .state)" = created ]; do
+    i=$((i + 1))
+    [ "$i" -gt 24 ] && fail "volume $1 was not created"
+    sleep 5
+  done
+  echo "$vid"
+}
+
 echo "== creating $APP in $FLY_ORG/$REGION ($CONFIG)"
 fly apps create "$APP" --org "$FLY_ORG" >/dev/null
 
@@ -97,9 +111,9 @@ fly secrets set -a "$APP" --stage \
 rm -rf "$keys"
 
 echo "== postgres"
-fly volumes create pgdata -a "$APP" -r "$REGION" -s 20 --vm-size performance-2x -y >/dev/null
+PGVOL=$(volume pgdata 20 performance-2x)
 fly machine run postgres:16.4 -a "$APP" -n pg -r "$REGION" --vm-size performance-2x --vm-memory 4096 \
-  -v pgdata:/var/lib/postgresql/data --restart no --detach \
+  -v "$PGVOL":/var/lib/postgresql/data --restart no --detach \
   -e POSTGRES_USER=hatchet -e POSTGRES_DB=hatchet -e PGDATA=/var/lib/postgresql/data/pgdata \
   -- postgres -c listen_addresses='*' -c max_connections=400 -c shared_preload_libraries=pg_stat_statements \
   -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=16MB >/dev/null
@@ -150,21 +164,21 @@ sleep 20
 API="http://$(host api):8080"
 
 echo "== driver (created first so workers know its address; started last)"
-fly volumes create results -a "$APP" -r "$REGION" -s 1 --vm-size performance-2x -y >/dev/null
+RESVOL=$(volume results 1 performance-2x)
 fly machine create "$HARNESS_IMAGE" -a "$APP" -n driver -r "$REGION" --vm-size performance-2x --vm-memory 4096 \
-  -v results:/out --restart no >/dev/null
+  -v "$RESVOL":/out --restart no >/dev/null
 DRIVER_HOST=$(host driver)
 
 if [ "$CONFIG" = C ]; then
   echo "== aquifer"
   # Aquifer's job store lives on a volume, so jobs it has accepted survive a
   # machine restart.
-  fly volumes create aqdata -a "$APP" -r "$REGION" -s 5 --vm-size performance-1x -y >/dev/null
+  AQVOL=$(volume aqdata 5 performance-1x)
   aqcfg=$(mktemp)
   printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n' \
     "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" > "$aqcfg"
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n aquifer -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" -v aqdata:/data \
+    --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" -v "$AQVOL":/data \
     -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/data/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
     ${AQUIFER_FLUSH_MS:+-e AQUIFER_PEBBLE_FLUSH_INTERVAL_MS=$AQUIFER_FLUSH_MS} >/dev/null
   rm -f "$aqcfg"
