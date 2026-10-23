@@ -43,3 +43,29 @@ Steady load, a burst at three times capacity, sustained overload, and recovery. 
 | [#3922](https://github.com/hatchet-dev/hatchet/issues/3922) Parent shows success when children time out | Reproduces: `aio_run_many` returns `{}` for timed-out children and the parent completes |
 
 The reproduction is in [`repro/`](repro/).
+
+## Harness
+
+- [`cmd/worker`](cmd/worker): runs the four-step document workflow. `CONFIG=A` uses Hatchet's defaults; `CONFIG=B` adds per-tenant round-robin concurrency (`input.tenant`) and a long scheduling timeout. The index step reports each completion to the driver.
+- [`cmd/driver`](cmd/driver): the producers and the ledger. It offers documents for seven tenants on the phased schedule (`PHASES`, scaled by `SCALE`), submits them through Hatchet's REST trigger with exponential backoff that honors `Retry-After`, polls run status every few seconds like an application would, and classifies every document as completed, failed, never started (#4287) or rejected. It writes `intervals.jsonl` every 10 seconds and `summary.json` at the end: per-tenant outcomes, p50/p99 by phase, slowdown during overload, longest gap without a completion, Jain's index, and drain time.
+
+### Local full self-hosted Hatchet
+
+[`deploy/local`](deploy/local) runs the same shape as the Fly runs: Postgres, migrations, seed, engine and API as separate containers, configured only by environment variables (no shared config volume), with Postgres as the message queue and `pg_stat_statements` loaded.
+
+```sh
+deploy/local/setup.sh    # generates keys, starts Hatchet, writes deploy/local/token.txt
+export HATCHET_CLIENT_TOKEN=$(cat deploy/local/token.txt) HATCHET_CLIENT_TLS_STRATEGY=none HATCHET_CLIENT_HOST_PORT=localhost:7077
+CONFIG=B STEP_MS=20 CALLBACK_URL=http://localhost:8090/done go run ./cmd/worker &
+HATCHET_API=http://localhost:8080 LISTEN=:8090 RATE=20 SCALE=0.02 go run ./cmd/driver
+(cd deploy/local && docker compose down -v)
+```
+
+Two checks on this setup (2026-10-23, scaled schedule, about 1.5 minutes):
+
+| Run | Result |
+|---|---|
+| `CONFIG=B`, 20 docs/s | 1,917 offered, all completed, no duplicates, nothing outstanding |
+| `CONFIG=B`, one run per tenant, 2 s scheduling timeout, 100 ms steps | 292 completed, 664 never started (656 law firm, 8 accounting); every small business completed all of its documents. Jain's index 0.86 |
+
+The second run is a classification check, not a benchmark result: it shows the ledger finds never-started timeouts and that per-tenant round-robin protects small tenants.

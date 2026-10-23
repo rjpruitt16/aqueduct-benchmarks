@@ -1,0 +1,45 @@
+name: hatchet-full
+x-hatchet-env: &hatchet-env
+  DATABASE_URL: postgres://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable
+  SERVER_MSGQUEUE_KIND: postgres
+  SERVER_AUTH_COOKIE_DOMAIN: localhost
+  SERVER_AUTH_COOKIE_INSECURE: "t"
+  SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+  SERVER_GRPC_BIND_ADDRESS: 0.0.0.0
+  SERVER_GRPC_INSECURE: "t"
+  SERVER_GRPC_PORT: "7070"
+  SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
+  SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS: engine:7070
+  SERVER_URL: http://localhost:8080
+  SERVER_PORT: "8080"
+services:
+  postgres:
+    image: postgres:16.4
+    command: postgres -c max_connections=400 -c shared_preload_libraries=pg_stat_statements
+    environment: [POSTGRES_USER=hatchet, POSTGRES_PASSWORD=hatchet, POSTGRES_DB=hatchet]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -d hatchet -U hatchet"], interval: 3s, retries: 30}
+  migrate:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.110.8
+    command: /hatchet/hatchet-migrate
+    environment: {DATABASE_URL: "postgres://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable"}
+    depends_on: {postgres: {condition: service_healthy}}
+  seed:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.110.8
+    command: /hatchet/hatchet-admin seed
+    env_file: hatchet.env
+    environment: *hatchet-env
+    depends_on: {migrate: {condition: service_completed_successfully}}
+  engine:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.110.8
+    command: /hatchet/hatchet-engine
+    env_file: hatchet.env
+    environment: *hatchet-env
+    ports: ["127.0.0.1:7077:7070"]
+    depends_on: {seed: {condition: service_completed_successfully}}
+  api:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.110.8
+    command: /hatchet/hatchet-api
+    env_file: hatchet.env
+    environment: *hatchet-env
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on: {seed: {condition: service_completed_successfully}}
