@@ -146,7 +146,7 @@ ENGINE_TUNING="-e DATABASE_MAX_CONNS=${ENGINE_DB_CONNS:-100} -e SERVER_GRPC_TRIG
   -e SERVER_DEFAULT_BUFFER_SIZE=${BUFFER_SIZE:-10} -e SERVER_DEFAULT_BUFFER_FLUSH_INTERVAL=${BUFFER_FLUSH:-10ms}"
 # shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-engine:$HATCHET /hatchet/hatchet-engine -a "$APP" -n engine \
-  -r "$REGION" --vm-size performance-2x --vm-memory 4096 --restart on-fail --detach $HATCHET_ENV $ENGINE_TUNING >/dev/null
+  -r "$REGION" --vm-size performance-2x --vm-memory 4096 --restart on-failure --detach $HATCHET_ENV $ENGINE_TUNING >/dev/null
 ENGINE_HOST=$(host engine)
 API_IMAGE=ghcr.io/hatchet-dev/hatchet/hatchet-api:$HATCHET
 API_SIZE="--vm-size performance-1x --vm-memory 2048"
@@ -157,7 +157,7 @@ else
   API_SIZE="--vm-size performance-2x --vm-memory 4096"
 fi
 # shellcheck disable=SC2086
-fly machine run "$API_IMAGE" /hatchet/hatchet-api -a "$APP" -n api -r "$REGION" $API_SIZE --restart on-fail --detach \
+fly machine run "$API_IMAGE" /hatchet/hatchet-api -a "$APP" -n api -r "$REGION" $API_SIZE --restart on-failure --detach \
   $HATCHET_ENV -e SERVER_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" \
   -e SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" >/dev/null
 sleep 20
@@ -178,7 +178,7 @@ if [ "$CONFIG" = C ]; then
   printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n' \
     "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" > "$aqcfg"
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n aquifer -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" -v "$AQVOL":/data \
+    --restart on-failure --detach --file-local /etc/aquifer.yaml="$aqcfg" -v "$AQVOL":/data \
     -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/data/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
     ${AQUIFER_FLUSH_MS:+-e AQUIFER_PEBBLE_FLUSH_INTERVAL_MS=$AQUIFER_FLUSH_MS} >/dev/null
   rm -f "$aqcfg"
@@ -189,7 +189,7 @@ echo "== workers"
 i=1
 while [ "$i" -le "$WORKERS" ]; do
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n "worker-$i" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-fail --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 \
+    --restart on-failure --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 \
     -e CALLBACK_URL="http://$DRIVER_HOST:8080/done" -e HATCHET_CLIENT_TOKEN="$TOKEN" \
     -e HATCHET_CLIENT_TLS_STRATEGY=none -e HATCHET_CLIENT_HOST_PORT="$ENGINE_HOST:7070" >/dev/null
   i=$((i + 1))
