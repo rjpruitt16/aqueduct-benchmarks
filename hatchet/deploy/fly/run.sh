@@ -1,0 +1,198 @@
+#!/bin/sh
+# One measured Hatchet benchmark run on Fly.io: creates a private app, runs
+# Postgres, Hatchet (engine and API), workers, optionally Aquifer, and the
+# driver with the Postgres sampler; copies the results out; destroys the app.
+#
+# Usage: deploy/fly/run.sh <B|C> <run-name>
+#
+# Environment:
+#   FLY_ORG         Fly organization (required)
+#   REGION          Fly region (default iad)
+#   HARNESS_IMAGE   ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:<commit> (required)
+#   FORK_API_IMAGE  patched Hatchet API image for C
+#                   (default ghcr.io/rjpruitt16/hatchet-aquifer-api:v0.110.8-aqueduct-ff494eb)
+#   RATE            documents/s at 100% (default 50; set from calibration)
+#   PHASES, SCALE   passed to the driver (defaults: the agreed 75-minute run)
+#   WORKERS         worker machines (default 3)
+#   KEEP=1          leave the app running after the run, for debugging
+#
+# Machines (all dedicated CPUs, so runs are repeatable):
+#   pg       performance-2x, 4 GB, 20 GB volume   Postgres 16 (also Hatchet's message queue)
+#   engine   performance-2x, 4 GB                 Hatchet engine
+#   api      performance-1x, 2 GB                 Hatchet REST API (the fork's image in C)
+#   worker-N performance-1x, 2 GB                 pipeline workers
+#   aquifer  performance-1x, 2 GB                 C only; in B the API gets the same budget back
+#   driver   performance-2x, 4 GB, 1 GB volume    producers, ledger, Postgres sampler
+set -eu
+
+CONFIG=${1:?usage: run.sh <B|C> <run-name>}
+NAME=${2:?usage: run.sh <B|C> <run-name>}
+: "${FLY_ORG:?set FLY_ORG}"
+: "${HARNESS_IMAGE:?set HARNESS_IMAGE}"
+REGION=${REGION:-iad}
+HATCHET=v0.110.8
+FORK_API_IMAGE=${FORK_API_IMAGE:-ghcr.io/rjpruitt16/hatchet-aquifer-api:$HATCHET-aqueduct-ff494eb}
+WORKERS=${WORKERS:-3}
+APP=aqb-hatchet-$NAME
+TENANT=707d0855-80ab-4e1f-a156-f1c4546cbf52
+OUT=results/$NAME
+case "$CONFIG" in B | C) ;; *) echo "CONFIG must be B or C" >&2; exit 2 ;; esac
+umask 077
+mkdir -p "$OUT"
+
+cleanup() {
+  if [ "${KEEP:-}" != 1 ]; then
+    fly apps destroy "$APP" -y >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+machine_id() { fly machine list -a "$APP" --json | jq -r --arg n "$1" '.[] | select(.name == $n) | .id'; }
+host() { echo "$(machine_id "$1").vm.$APP.internal"; }
+
+# Waits until a one-shot machine has exited and prints its exit code.
+wait_exit() {
+  id=$(machine_id "$1")
+  i=0
+  while :; do
+    state=$(fly machine status "$id" -a "$APP" --display-config=false 2>/dev/null | awk '/^ *State/ {print $NF; exit}')
+    case "$state" in stopped | destroyed) break ;; esac
+    i=$((i + 1))
+    [ "$i" -gt 180 ] && { echo "$1 did not finish" >&2; exit 1; }
+    sleep 5
+  done
+  fly machine status "$id" -a "$APP" 2>/dev/null | awk '/exit_code/ {print $NF; exit}'
+}
+
+echo "== creating $APP in $FLY_ORG/$REGION ($CONFIG)"
+fly apps create "$APP" --org "$FLY_ORG" >/dev/null
+
+# Hatchet's keys, generated locally and stored as app secrets.
+keys=$(mktemp -d)
+docker run --rm -v "$keys:/keys" ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET \
+  /hatchet/hatchet-admin keyset create-local-keys --key-dir /keys >/dev/null
+PGPW=$(openssl rand -hex 16)
+fly secrets set -a "$APP" --stage \
+  SERVER_ENCRYPTION_MASTER_KEYSET="$(cat "$keys/master.key")" \
+  SERVER_ENCRYPTION_JWT_PRIVATE_KEYSET="$(cat "$keys/private_ec256.key")" \
+  SERVER_ENCRYPTION_JWT_PUBLIC_KEYSET="$(cat "$keys/public_ec256.key")" \
+  SERVER_AUTH_COOKIE_SECRETS="$(openssl rand -hex 8) $(openssl rand -hex 8)" \
+  POSTGRES_PASSWORD="$PGPW" >/dev/null
+rm -rf "$keys"
+
+echo "== postgres"
+fly volumes create pgdata -a "$APP" -r "$REGION" -s 20 --vm-size performance-2x -y >/dev/null
+fly machine run postgres:16.4 -a "$APP" -n pg -r "$REGION" --vm-size performance-2x --vm-memory 4096 \
+  -v pgdata:/var/lib/postgresql/data --restart no --detach \
+  -e POSTGRES_USER=hatchet -e POSTGRES_DB=hatchet -e PGDATA=/var/lib/postgresql/data/pgdata \
+  -- postgres -c listen_addresses='*' -c max_connections=400 -c shared_preload_libraries=pg_stat_statements \
+  -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=16MB >/dev/null
+sleep 20
+DB="postgres://hatchet:$PGPW@$(host pg):5432/hatchet?sslmode=disable"
+
+HATCHET_ENV="-e DATABASE_URL=$DB -e SERVER_MSGQUEUE_KIND=postgres -e SERVER_AUTH_COOKIE_DOMAIN=localhost \
+  -e SERVER_AUTH_COOKIE_INSECURE=t -e SERVER_AUTH_SET_EMAIL_VERIFIED=t -e SERVER_GRPC_BIND_ADDRESS=[::] \
+  -e SERVER_GRPC_INSECURE=t -e SERVER_GRPC_PORT=7070 -e SERVER_PORT=8080 -e SERVER_URL=http://localhost:8080"
+
+echo "== migrate and seed"
+fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-migrate:$HATCHET /hatchet/hatchet-migrate -a "$APP" -n migrate \
+  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach -e DATABASE_URL="$DB" >/dev/null
+[ "$(wait_exit migrate)" = 0 ] || { echo "migrate failed" >&2; exit 1; }
+# shellcheck disable=SC2086
+fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin seed -a "$APP" -n seed \
+  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
+[ "$(wait_exit seed)" = 0 ] || { echo "seed failed" >&2; exit 1; }
+# shellcheck disable=SC2086
+fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin token create --tenant-id $TENANT \
+  -a "$APP" -n token -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
+wait_exit token >/dev/null
+TOKEN=$(fly logs -a "$APP" --machine "$(machine_id token)" --no-tail 2>/dev/null | grep -oE 'ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | tail -1)
+[ -n "$TOKEN" ] || { echo "could not read the API token" >&2; exit 1; }
+
+echo "== hatchet engine and api"
+# shellcheck disable=SC2086
+fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-engine:$HATCHET /hatchet/hatchet-engine -a "$APP" -n engine \
+  -r "$REGION" --vm-size performance-2x --vm-memory 4096 --restart on-fail --detach $HATCHET_ENV >/dev/null
+ENGINE_HOST=$(host engine)
+API_IMAGE=ghcr.io/hatchet-dev/hatchet/hatchet-api:$HATCHET
+API_SIZE="--vm-size performance-1x --vm-memory 2048"
+if [ "$CONFIG" = C ]; then
+  API_IMAGE=$FORK_API_IMAGE
+else
+  # B gets Aquifer's machine budget back on the API.
+  API_SIZE="--vm-size performance-2x --vm-memory 4096"
+fi
+# shellcheck disable=SC2086
+fly machine run "$API_IMAGE" /hatchet/hatchet-api -a "$APP" -n api -r "$REGION" $API_SIZE --restart on-fail --detach \
+  $HATCHET_ENV -e SERVER_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" \
+  -e SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" >/dev/null
+sleep 20
+API="http://$(host api):8080"
+
+echo "== driver (created first so workers know its address; started last)"
+fly volumes create results -a "$APP" -r "$REGION" -s 1 --vm-size performance-2x -y >/dev/null
+fly machine create "$HARNESS_IMAGE" -a "$APP" -n driver -r "$REGION" --vm-size performance-2x --vm-memory 4096 \
+  -v results:/out --restart no >/dev/null
+DRIVER_HOST=$(host driver)
+
+if [ "$CONFIG" = C ]; then
+  echo "== aquifer"
+  aqcfg=$(mktemp)
+  printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n' \
+    "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" > "$aqcfg"
+  fly machine run "$HARNESS_IMAGE" -a "$APP" -n aquifer -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
+    --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" \
+    -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/tmp/aquifer -e CONFIG_PATH=/etc/aquifer.yaml >/dev/null
+  rm -f "$aqcfg"
+  AQUIFER_HOST=$(host aquifer)
+fi
+
+echo "== workers"
+i=1
+while [ "$i" -le "$WORKERS" ]; do
+  fly machine run "$HARNESS_IMAGE" -a "$APP" -n "worker-$i" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
+    --restart on-fail --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 \
+    -e CALLBACK_URL="http://$DRIVER_HOST:8080/done" -e HATCHET_CLIENT_TOKEN="$TOKEN" \
+    -e HATCHET_CLIENT_TLS_STRATEGY=none -e HATCHET_CLIENT_HOST_PORT="$ENGINE_HOST:7070" >/dev/null
+  i=$((i + 1))
+done
+sleep 20
+
+echo "== driver"
+set -- -e ROLE=driver -e HOLD=1 -e OUT=/out -e HATCHET_API="$API" -e HATCHET_CLIENT_TOKEN="$TOKEN" \
+  -e DATABASE_URL="$DB" -e RATE="${RATE:-50}" -e LISTEN=:8080
+[ -n "${PHASES:-}" ] && set -- "$@" -e PHASES="$PHASES"
+[ -n "${SCALE:-}" ] && set -- "$@" -e SCALE="$SCALE"
+if [ "$CONFIG" = C ]; then
+  set -- "$@" -e AQUIFER_URL="http://$AQUIFER_HOST:8080" -e PUBLIC_URL="http://$DRIVER_HOST:8080"
+fi
+fly machine update "$(machine_id driver)" -a "$APP" -y --skip-start "$@" >/dev/null
+fly machine start "$(machine_id driver)" -a "$APP" >/dev/null
+started=$(date -u +%FT%TZ)
+echo "   started $started; waiting for the driver to finish"
+
+# The driver writes /out/DONE and then holds the machine open so the results
+# can be copied. Allow the full schedule plus drain.
+i=0
+until fly ssh console -a "$APP" --machine "$(machine_id driver)" -C "test -f /out/DONE" >/dev/null 2>&1; do
+  i=$((i + 1))
+  [ "$i" -gt 1800 ] && { echo "driver did not finish within 5 hours" >&2; exit 1; }
+  sleep 10
+done
+
+echo "== copying results to $OUT"
+for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE; do
+  fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 || echo "   missing $f" >&2
+done
+fly machine list -a "$APP" --json > "$OUT/machines.json"
+{
+  echo "config=$CONFIG"
+  echo "started=$started"
+  echo "hatchet=$HATCHET"
+  echo "harness_image=$HARNESS_IMAGE"
+  [ "$CONFIG" = C ] && echo "api_image=$FORK_API_IMAGE"
+  echo "region=$REGION"
+  echo "workers=$WORKERS"
+  echo "rate=${RATE:-50}"
+} > "$OUT/run.txt"
+echo "== done: $OUT"

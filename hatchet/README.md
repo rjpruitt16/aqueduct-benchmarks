@@ -66,6 +66,23 @@ With `AQUIFER_URL` set, the driver posts each document to Aquifer's `/jobs` (`us
 - **Bursts are not rejected.** The engine allows `SERVER_GRPC_TRIGGER_WRITE_SLOTS` (default 5) concurrent fast-path trigger writes. Past that, an ordinary trigger falls back to Hatchet's message queue, which is Postgres in this setup, instead of failing. `ResourceExhausted` only comes from enforced tenant limits, or from an idempotent trigger that can't get a slot. So Hatchet accepts a burst and carries it as extra database writes; the trigger-slot setting is part of B's tuning.
 - **Tenant limits are off for self-hosters by default** (`SERVER_ENFORCE_LIMITS=false`). If enabled, the defaults are small (2,000 task runs per 24 hours), so they must stay off or be raised for the benchmark.
 
+### Fly runs (script written, not yet run)
+
+[`deploy/fly/run.sh`](deploy/fly/run.sh) runs one measured configuration (`B` or `C`) in a private Fly app and destroys it afterward. The harness image, with the worker, driver, Postgres sampler and Aquifer from a pinned commit, is built by `.github/workflows/hatchet-image.yml` as `ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:<commit>`.
+
+| Machine | Size | Role |
+|---|---|---|
+| `pg` | performance-2x, 4 GB, 20 GB volume | Postgres 16, also Hatchet's message queue |
+| `engine` | performance-2x, 4 GB | Hatchet engine |
+| `api` | performance-1x, 2 GB in C; performance-2x, 4 GB in B | Hatchet REST API (the fork's image in C). B gets Aquifer's machine budget back here |
+| `worker-1..3` | performance-1x, 2 GB | pipeline workers |
+| `aquifer` | performance-1x, 2 GB | C only |
+| `driver` | performance-2x, 4 GB, 1 GB volume | producers, ledger, Postgres sampler |
+
+Results land in `results/<run-name>/`: `summary.json`, `intervals.jsonl`, `postgres.jsonl`, `statements.json`, `driver.log`, `machines.json` and `run.txt` (versions, images, rate).
+
+On Fly the engine must listen on IPv6 (`SERVER_GRPC_BIND_ADDRESS=[::]`), because the private network is IPv6-only; checked locally that workers connect to an engine bound that way.
+
 ### Local full self-hosted Hatchet
 
 [`deploy/local`](deploy/local) runs the same shape as the Fly runs: Postgres, migrations, seed, engine and API as separate containers, configured only by environment variables (no shared config volume), with Postgres as the message queue and `pg_stat_statements` loaded.
