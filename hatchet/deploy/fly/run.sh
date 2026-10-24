@@ -41,6 +41,11 @@ APP=aqb-hatchet-$NAME
 TENANT=707d0855-80ab-4e1f-a156-f1c4546cbf52
 OUT=results/$NAME
 case "$CONFIG" in B | C) ;; *) echo "CONFIG must be B or C" >&2; exit 2 ;; esac
+for tool in fly jq openssl docker; do
+  command -v "$tool" >/dev/null || { echo "run.sh needs $tool" >&2; exit 2; }
+done
+# Docker generates Hatchet's keys; check the daemon before creating anything.
+docker info >/dev/null 2>&1 || { echo "the Docker daemon is not running" >&2; exit 2; }
 umask 077
 mkdir -p "$OUT"
 
