@@ -16,6 +16,7 @@
 #   WORKERS         worker machines (default 3)
 #   KEEP=1          leave the app running after the run, for debugging
 #   AQUIFER_FLUSH_MS  Aquifer's disk flush interval in C (default: Aquifer's 100 ms; 0 = fsync every write)
+#   TENANT_MAX_RUNS concurrent documents per tenant in the workflow (default 50)
 #   ENGINE_DB_CONNS, TRIGGER_SLOTS, BUFFER_SIZE, BUFFER_FLUSH
 #                   tuned engine settings (see TUNING.md); fixed by calibration
 #
@@ -40,11 +41,17 @@ APP=aqb-hatchet-$NAME
 TENANT=707d0855-80ab-4e1f-a156-f1c4546cbf52
 OUT=results/$NAME
 case "$CONFIG" in B | C) ;; *) echo "CONFIG must be B or C" >&2; exit 2 ;; esac
+for tool in fly jq openssl docker; do
+  command -v "$tool" >/dev/null || { echo "run.sh needs $tool" >&2; exit 2; }
+done
+# Docker generates Hatchet's keys; check the daemon before creating anything.
+docker info >/dev/null 2>&1 || { echo "the Docker daemon is not running" >&2; exit 2; }
 umask 077
 mkdir -p "$OUT"
 
 # A failed run, or one whose results could not all be copied, keeps the app
-# (and its driver.log) for inspection instead of destroying it.
+# (and its logs) for inspection instead of destroying it; so does any command
+# that fails under set -e.
 fail() {
   echo "$1" >&2
   KEEP=1
@@ -53,7 +60,10 @@ fail() {
 }
 
 cleanup() {
-  if [ "${KEEP:-}" != 1 ]; then
+  status=$?
+  if [ "$status" != 0 ] && [ "${KEEP:-}" != 1 ]; then
+    echo "run.sh failed (status $status); keeping $APP for inspection; destroy it with: fly apps destroy $APP -y" >&2
+  elif [ "${KEEP:-}" != 1 ]; then
     fly apps destroy "$APP" -y >/dev/null 2>&1 || true
   fi
 }
@@ -62,18 +72,37 @@ trap cleanup EXIT
 machine_id() { fly machine list -a "$APP" --json | jq -r --arg n "$1" '.[] | select(.name == $n) | .id'; }
 host() { echo "$(machine_id "$1").vm.$APP.internal"; }
 
-# Waits until a one-shot machine has exited and prints its exit code.
+# Waits until a one-shot machine has stopped with an exit event and prints its
+# exit code. Fly omits exit_code from the event when it is 0, and lists events
+# newest first. A failing fly call ends the run rather than reading as a hang.
 wait_exit() {
-  id=$(machine_id "$1")
   i=0
   while :; do
-    state=$(fly machine status "$id" -a "$APP" --display-config=false 2>/dev/null | awk '/^ *State/ {print $NF; exit}')
-    case "$state" in stopped | destroyed) break ;; esac
+    list=$(fly machine list -a "$APP" --json) || fail "fly machine list failed while waiting for $1"
+    code=$(echo "$list" | jq -r --arg n "$1" '.[] | select(.name == $n)
+      | select(.state == "stopped" or .state == "destroyed")
+      | [.events[]? | select(.type == "exit")][0] // empty
+      | .request.exit_event.exit_code // 0')
+    [ -n "$code" ] && break
     i=$((i + 1))
-    [ "$i" -gt 180 ] && { echo "$1 did not finish" >&2; exit 1; }
+    [ "$i" -gt 180 ] && fail "$1 did not finish"
     sleep 5
   done
-  fly machine status "$id" -a "$APP" 2>/dev/null | awk '/exit_code/ {print $NF; exit}'
+  echo "$code"
+}
+
+# Creates a volume and prints its ID once Fly reports it created; machines
+# then attach it by ID. Attaching by name right after creating it can fail
+# with "volume not found".
+volume() {
+  vid=$(fly volumes create "$1" -a "$APP" -r "$REGION" -s "$2" --vm-size "$3" -y --json | jq -r .id)
+  i=0
+  until [ "$(fly volumes show "$vid" -a "$APP" --json 2>/dev/null | jq -r .state)" = created ]; do
+    i=$((i + 1))
+    [ "$i" -gt 24 ] && fail "volume $1 was not created"
+    sleep 5
+  done
+  echo "$vid"
 }
 
 echo "== creating $APP in $FLY_ORG/$REGION ($CONFIG)"
@@ -93,9 +122,9 @@ fly secrets set -a "$APP" --stage \
 rm -rf "$keys"
 
 echo "== postgres"
-fly volumes create pgdata -a "$APP" -r "$REGION" -s 20 --vm-size performance-2x -y >/dev/null
+PGVOL=$(volume pgdata 20 performance-2x)
 fly machine run postgres:16.4 -a "$APP" -n pg -r "$REGION" --vm-size performance-2x --vm-memory 4096 \
-  -v pgdata:/var/lib/postgresql/data --restart no --detach \
+  -v "$PGVOL":/var/lib/postgresql/data --restart no --detach \
   -e POSTGRES_USER=hatchet -e POSTGRES_DB=hatchet -e PGDATA=/var/lib/postgresql/data/pgdata \
   -- postgres -c listen_addresses='*' -c max_connections=400 -c shared_preload_libraries=pg_stat_statements \
   -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=16MB >/dev/null
@@ -107,19 +136,21 @@ HATCHET_ENV="-e DATABASE_URL=$DB -e SERVER_MSGQUEUE_KIND=postgres -e SERVER_AUTH
   -e SERVER_GRPC_INSECURE=t -e SERVER_GRPC_PORT=7070 -e SERVER_PORT=8080 -e SERVER_URL=http://localhost:8080"
 
 echo "== migrate and seed"
+# A one-shot can exit before fly machine run sees it start, which fly reports
+# as an error; wait_exit reads the real exit code instead.
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-migrate:$HATCHET /hatchet/hatchet-migrate -a "$APP" -n migrate \
-  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach -e DATABASE_URL="$DB" >/dev/null
-[ "$(wait_exit migrate)" = 0 ] || { echo "migrate failed" >&2; exit 1; }
+  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach -e DATABASE_URL="$DB" >/dev/null || true
+[ "$(wait_exit migrate)" = 0 ] || fail "migrate failed"
 # shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin seed -a "$APP" -n seed \
-  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
-[ "$(wait_exit seed)" = 0 ] || { echo "seed failed" >&2; exit 1; }
+  -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null || true
+[ "$(wait_exit seed)" = 0 ] || fail "seed failed"
 # shellcheck disable=SC2086
-fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET /hatchet/hatchet-admin token create --tenant-id $TENANT \
-  -a "$APP" -n token -r "$REGION" --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV >/dev/null
-wait_exit token >/dev/null
+fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET -a "$APP" -n token -r "$REGION" \
+  --vm-size shared-cpu-2x --restart no --detach $HATCHET_ENV -- /hatchet/hatchet-admin token create --tenant-id $TENANT >/dev/null || true
+[ "$(wait_exit token)" = 0 ] || fail "token create failed"
 TOKEN=$(fly logs -a "$APP" --machine "$(machine_id token)" --no-tail 2>/dev/null | grep -oE 'ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | tail -1)
-[ -n "$TOKEN" ] || { echo "could not read the API token" >&2; exit 1; }
+[ -n "$TOKEN" ] || fail "could not read the API token"
 
 echo "== hatchet engine and api"
 # shellcheck disable=SC2086
@@ -128,7 +159,7 @@ ENGINE_TUNING="-e DATABASE_MAX_CONNS=${ENGINE_DB_CONNS:-100} -e SERVER_GRPC_TRIG
   -e SERVER_DEFAULT_BUFFER_SIZE=${BUFFER_SIZE:-10} -e SERVER_DEFAULT_BUFFER_FLUSH_INTERVAL=${BUFFER_FLUSH:-10ms}"
 # shellcheck disable=SC2086
 fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-engine:$HATCHET /hatchet/hatchet-engine -a "$APP" -n engine \
-  -r "$REGION" --vm-size performance-2x --vm-memory 4096 --restart on-fail --detach $HATCHET_ENV $ENGINE_TUNING >/dev/null
+  -r "$REGION" --vm-size performance-2x --vm-memory 4096 --restart on-failure --detach $HATCHET_ENV $ENGINE_TUNING >/dev/null
 ENGINE_HOST=$(host engine)
 API_IMAGE=ghcr.io/hatchet-dev/hatchet/hatchet-api:$HATCHET
 API_SIZE="--vm-size performance-1x --vm-memory 2048"
@@ -139,28 +170,31 @@ else
   API_SIZE="--vm-size performance-2x --vm-memory 4096"
 fi
 # shellcheck disable=SC2086
-fly machine run "$API_IMAGE" /hatchet/hatchet-api -a "$APP" -n api -r "$REGION" $API_SIZE --restart on-fail --detach \
+fly machine run "$API_IMAGE" /hatchet/hatchet-api -a "$APP" -n api -r "$REGION" $API_SIZE --restart on-failure --detach \
   $HATCHET_ENV -e SERVER_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" \
   -e SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" >/dev/null
 sleep 20
 API="http://$(host api):8080"
 
 echo "== driver (created first so workers know its address; started last)"
-fly volumes create results -a "$APP" -r "$REGION" -s 1 --vm-size performance-2x -y >/dev/null
+RESVOL=$(volume results 1 performance-2x)
 fly machine create "$HARNESS_IMAGE" -a "$APP" -n driver -r "$REGION" --vm-size performance-2x --vm-memory 4096 \
-  -v results:/out --restart no >/dev/null
+  -v "$RESVOL":/out --restart no >/dev/null
 DRIVER_HOST=$(host driver)
 
 if [ "$CONFIG" = C ]; then
   echo "== aquifer"
   # Aquifer's job store lives on a volume, so jobs it has accepted survive a
   # machine restart.
-  fly volumes create aqdata -a "$APP" -r "$REGION" -s 5 --vm-size performance-1x -y >/dev/null
+  AQVOL=$(volume aqdata 5 performance-1x)
   aqcfg=$(mktemp)
-  printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n' \
-    "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" > "$aqcfg"
+  # Hatchet's API is paced at the calibrated rate. The driver receives
+  # Aquifer's completion webhooks, so it must not fall under the small
+  # default for unknown hosts.
+  printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n  "%s:8080":\n    rps: 1000\n    max_concurrent: 64\n' \
+    "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" "$DRIVER_HOST" > "$aqcfg"
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n aquifer -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-fail --detach --file-local /etc/aquifer.yaml="$aqcfg" -v aqdata:/data \
+    --restart on-failure --detach --file-local /etc/aquifer.yaml="$aqcfg" -v "$AQVOL":/data \
     -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/data/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
     ${AQUIFER_FLUSH_MS:+-e AQUIFER_PEBBLE_FLUSH_INTERVAL_MS=$AQUIFER_FLUSH_MS} >/dev/null
   rm -f "$aqcfg"
@@ -171,7 +205,7 @@ echo "== workers"
 i=1
 while [ "$i" -le "$WORKERS" ]; do
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n "worker-$i" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-fail --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 \
+    --restart on-failure --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 -e TENANT_MAX_RUNS="${TENANT_MAX_RUNS:-50}" \
     -e CALLBACK_URL="http://$DRIVER_HOST:8080/done" -e HATCHET_CLIENT_TOKEN="$TOKEN" \
     -e HATCHET_CLIENT_TLS_STRATEGY=none -e HATCHET_CLIENT_HOST_PORT="$ENGINE_HOST:7070" >/dev/null
   i=$((i + 1))
@@ -206,7 +240,10 @@ for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log 
   fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 || missing="$missing $f"
 done
 [ -z "$missing" ] || fail "could not copy:$missing"
-fly machine list -a "$APP" --json > "$OUT/machines.json"
+# Machine sizes and images only: the full config holds the token and the
+# database password.
+fly machine list -a "$APP" --json \
+  | jq '[.[] | {id, name, region, image: .config.image, guest: .config.guest}]' > "$OUT/machines.json"
 {
   echo "config=$CONFIG"
   echo "started=$started"
@@ -216,6 +253,9 @@ fly machine list -a "$APP" --json > "$OUT/machines.json"
   echo "region=$REGION"
   echo "workers=$WORKERS"
   echo "rate=${RATE:-50}"
+  echo "tenant_max_runs=${TENANT_MAX_RUNS:-50}"
+  echo "engine_db_conns=${ENGINE_DB_CONNS:-100} trigger_slots=${TRIGGER_SLOTS:-5} buffer_size=${BUFFER_SIZE:-10} buffer_flush=${BUFFER_FLUSH:-10ms}"
+  [ -n "${PHASES:-}" ] && echo "phases=$PHASES"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
 } > "$OUT/run.txt"
 status=$(cat "$OUT/DONE")

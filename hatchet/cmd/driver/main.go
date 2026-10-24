@@ -12,7 +12,7 @@
 //	SCALE                 multiply every phase length (default 1; e.g. 0.05 locally)
 //	LISTEN                callback listen address (default :8080)
 //	OUT                   output directory (default ./out)
-//	SUBMITTERS            concurrent trigger requests (default 64)
+//	SUBMITTERS            concurrent trigger requests per tenant (default 32)
 //	POLL_EVERY            per-document status poll interval (default 5s)
 //	POLLERS               concurrent status polls (default 32)
 //	MAX_ATTEMPTS          trigger attempts before a document is rejected (default 6)
@@ -136,8 +136,14 @@ func main() {
 	}()
 	defer srv.Close()
 
+	// Each tenant is its own producer with its own submitters, as separate
+	// applications would be: one tenant's slow or refused submissions never
+	// hold up another tenant's documents in the driver.
 	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6),
-		queue: make(chan *doc, 1<<20)}
+		queues: make(map[string]chan *doc, len(tenants))}
+	for _, t := range tenants {
+		r.queues[t.name] = make(chan *doc, 1<<20)
+	}
 	if base := os.Getenv("AQUIFER_URL"); base != "" {
 		r.aq = &aquiferAPI{base: strings.TrimRight(base, "/"), hatchet: h,
 			webhookURL: strings.TrimRight(env("PUBLIC_URL", "http://localhost:8080"), "/") + "/aquifer",
@@ -145,9 +151,11 @@ func main() {
 		log.Printf("submitting through Aquifer at %s", base)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < envInt("SUBMITTERS", 64); i++ {
-		wg.Add(1)
-		go func() { defer wg.Done(); r.submitLoop(ctx) }()
+	for _, q := range r.queues {
+		for i := 0; i < envInt("SUBMITTERS", 32); i++ {
+			wg.Add(1)
+			go func() { defer wg.Done(); r.submitLoop(ctx, q) }()
+		}
 	}
 	pollCtx, stopPolling := context.WithCancel(ctx)
 	go r.pollLoop(pollCtx, envDuration("POLL_EVERY", 5*time.Second), envInt("POLLERS", 32))
@@ -158,7 +166,9 @@ func main() {
 	start := time.Now()
 	r.offerPhases(ctx, phases)
 	overloadEnd := time.Now()
-	close(r.queue)
+	for _, q := range r.queues {
+		close(q)
+	}
 	wg.Wait()
 
 	// Let accepted work finish, bounded by DRAIN_MAX.
@@ -184,14 +194,14 @@ type run struct {
 	l           *ledger
 	rate        float64
 	maxAttempts int
-	queue       chan *doc
+	queues      map[string]chan *doc // per tenant
 	seq         atomic.Int64
 	phase       atomic.Value // current phase name
 	retries     atomic.Int64
 }
 
 // offerPhases generates documents for every tenant at its rate for each phase.
-// Documents wait in the driver's queue when all submitters are busy; that wait
+// Documents wait in their tenant's queue when its submitters are busy; that wait
 // counts toward their latency, since they were offered when generated.
 func (r *run) offerPhases(ctx context.Context, phases []phase) {
 	const tick = 100 * time.Millisecond
@@ -225,7 +235,7 @@ func (r *run) offerPhases(ctx context.Context, phases []phase) {
 					owed[i]--
 					d := &doc{id: fmt.Sprintf("d%d", r.seq.Add(1)), tenant: t.name, offered: time.Now()}
 					r.l.offer(d)
-					r.queue <- d
+					r.queues[t.name] <- d
 				}
 			}
 		}
@@ -235,8 +245,8 @@ func (r *run) offerPhases(ctx context.Context, phases []phase) {
 
 // submitLoop triggers queued documents, retrying with exponential backoff and
 // honoring Retry-After, the way a careful producer would.
-func (r *run) submitLoop(ctx context.Context) {
-	for d := range r.queue {
+func (r *run) submitLoop(ctx context.Context, queue <-chan *doc) {
+	for d := range queue {
 		pages := 3
 		for _, t := range tenants {
 			if t.name == d.tenant {

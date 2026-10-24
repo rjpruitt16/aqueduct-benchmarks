@@ -1,0 +1,10 @@
+config=B
+started=2026-10-24T04:47:19Z
+hatchet=v0.110.8
+harness_image=ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:07322b1faccf53e67611293bcccb4c8e4fef186b
+region=iad
+workers=3
+rate=5
+tenant_max_runs=50
+engine_db_conns=100 trigger_slots=20 buffer_size=50 buffer_flush=25ms
+phases=r20:300:4,r25:300:5,r30:300:6
