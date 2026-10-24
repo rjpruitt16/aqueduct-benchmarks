@@ -188,8 +188,11 @@ if [ "$CONFIG" = C ]; then
   # machine restart.
   AQVOL=$(volume aqdata 5 performance-1x)
   aqcfg=$(mktemp)
-  printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n' \
-    "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" > "$aqcfg"
+  # Hatchet's API is paced at the calibrated rate. The driver receives
+  # Aquifer's completion webhooks, so it must not fall under the small
+  # default for unknown hosts.
+  printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "%s:8080":\n    rps: %s\n    max_concurrent: %s\n  "%s:8080":\n    rps: 1000\n    max_concurrent: 64\n' \
+    "$(host api)" "${AQUIFER_RPS:-${RATE:-50}}" "${AQUIFER_CONCURRENCY:-32}" "$DRIVER_HOST" > "$aqcfg"
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n aquifer -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-failure --detach --file-local /etc/aquifer.yaml="$aqcfg" -v "$AQVOL":/data \
     -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/data/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
