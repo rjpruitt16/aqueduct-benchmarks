@@ -243,6 +243,8 @@ fly machine list -a "$APP" --json > "$OUT/machines.json"
   echo "workers=$WORKERS"
   echo "rate=${RATE:-50}"
   echo "tenant_max_runs=${TENANT_MAX_RUNS:-50}"
+  echo "engine_db_conns=${ENGINE_DB_CONNS:-100} trigger_slots=${TRIGGER_SLOTS:-5} buffer_size=${BUFFER_SIZE:-10} buffer_flush=${BUFFER_FLUSH:-10ms}"
+  [ -n "${PHASES:-}" ] && echo "phases=$PHASES"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
 } > "$OUT/run.txt"
 status=$(cat "$OUT/DONE")
