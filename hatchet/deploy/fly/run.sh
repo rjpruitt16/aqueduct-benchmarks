@@ -237,7 +237,10 @@ for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log 
   fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 || missing="$missing $f"
 done
 [ -z "$missing" ] || fail "could not copy:$missing"
-fly machine list -a "$APP" --json > "$OUT/machines.json"
+# Machine sizes and images only: the full config holds the token and the
+# database password.
+fly machine list -a "$APP" --json \
+  | jq '[.[] | {id, name, region, image: .config.image, guest: .config.guest}]' > "$OUT/machines.json"
 {
   echo "config=$CONFIG"
   echo "started=$started"
