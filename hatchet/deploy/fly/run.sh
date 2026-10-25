@@ -50,20 +50,25 @@ umask 077
 mkdir -p "$OUT"
 
 # A failed run, or one whose results could not all be copied, keeps the app
-# (and its logs) for inspection instead of destroying it; so does any command
-# that fails under set -e.
+# (its volumes and logs) for inspection instead of destroying it; so does any
+# command that fails under set -e. Its machines are stopped so an unattended
+# failure doesn't keep billing for CPU.
 fail() {
   echo "$1" >&2
-  KEEP=1
-  echo "keeping $APP for inspection; destroy it with: fly apps destroy $APP -y" >&2
   exit 1
 }
 
 cleanup() {
   status=$?
-  if [ "$status" != 0 ] && [ "${KEEP:-}" != 1 ]; then
-    echo "run.sh failed (status $status); keeping $APP for inspection; destroy it with: fly apps destroy $APP -y" >&2
-  elif [ "${KEEP:-}" != 1 ]; then
+  if [ "${KEEP:-}" = 1 ]; then
+    return
+  fi
+  if [ "$status" != 0 ]; then
+    for id in $(fly machine list -a "$APP" --json 2>/dev/null | jq -r '.[] | select(.state == "started") | .id'); do
+      fly machine stop "$id" -a "$APP" >/dev/null 2>&1 || true
+    done
+    echo "run.sh failed (status $status); stopped $APP's machines and kept it for inspection; destroy it with: fly apps destroy $APP -y" >&2
+  else
     fly apps destroy "$APP" -y >/dev/null 2>&1 || true
   fi
 }
@@ -236,9 +241,10 @@ done
 
 echo "== copying results to $OUT"
 missing=""
-for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE; do
+for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log; do
   fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 || missing="$missing $f"
 done
+fly ssh console -a "$APP" --machine "$(machine_id driver)" -C "cat /out/DONE" 2>/dev/null | tr -d "\r" > "$OUT/DONE" && [ -s "$OUT/DONE" ] || missing="$missing DONE"
 [ -z "$missing" ] || fail "could not copy:$missing"
 # Machine sizes and images only: the full config holds the token and the
 # database password.

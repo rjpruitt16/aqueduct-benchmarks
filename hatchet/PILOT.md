@@ -36,8 +36,29 @@ These were harness bugs, not Hatchet or Aquifer behaviour. Data from before the 
 - The driver had one submission queue for all tenants, so when Aquifer refused submissions the small tenants' documents waited behind the law firm's inside the driver. Each tenant now has its own queue and submitters.
 - Aquifer's config listed only Hatchet's API, so its completion webhooks to the driver fell under the 2 requests/s default for unknown hosts. The webhook backlog then tripped Aquifer's `webhook_backlog` admission rule. The driver now has its own upstream entry.
 
+## Re-run of C with the fair-admission fix
+
+The finding above was an Aquifer bug: past the backlog budget, Aquifer refused every request (`upstream_queue`), whatever queue it came from, so the law firm filling the budget also locked out small tenants. [aquifer#125](https://github.com/rjpruitt16/aquifer/pull/125) (`630501d`) keeps queues at or below their fair share entering past the budget, up to 1.25× it, and measures excess against the fair share so an oversized queue is refused every time before the budget fills. C-3 and C-4 ran 2026-10-25 with that Aquifer and otherwise the same settings. Raw data is in `results/pilot-{c3,c4}`.
+
+| | C-1 | C-2 | C-3 (fix) | C-4 (fix) |
+|---|---|---|---|---|
+| Completed (of 96,000) | 94,492 | 95,713 | 95,818 | 86,335 |
+| Refused by Aquifer, after 6 attempts | 330 | 287 | 182 | 254 |
+| Refused, small tenants (each) | 0–3 | 1–9 | 0 | 0 |
+| Refused, accounting | 9 | 8 | 0 | 0 |
+| Unfinished after the 30 min drain | 1,178 | 0 | 0 | 9,411 |
+| Law firm p50 / p99 in overload (min) | 32.9 / 52.1 | 31.8 / 49.4 | 20.4 / 37.9 | 42.1 / 60.0 |
+| Small tenants p50 / p99 in overload (s) | 4.2 / 54.9 | 4.2 / 51.3 | 2.5 / 5.2 | 4.4 / 8.8 |
+| Accounting p99 in overload (s) | 32.5 | 33.1 | 5.1 | 8.3 |
+
+- **Only the law firm is refused now.** Small tenants and accounting had no refusals and no retries, and their overload p99 is back within B's range (5.9–10.2 s).
+- **The spread between runs is still large.** C-4's law firm was much slower than C-3's and 9,411 of its documents were unfinished at the end, like B-1. The two pairs agree on fairness, not on throughput.
+- Small tenants' recovery-phase p99 (9.5–12.7 s) is higher than B's (4.2–6.3 s), while the law firm's backlog drains.
+
+The results copy for both runs failed on the one-line `DONE` file (written by hand afterwards; both drivers exited 0), which left both apps running for about 10 hours before they were destroyed. `run.sh` now reads `DONE` over ssh and stops a failed run's machines.
+
 ## Open questions for the next runs
 
 1. Pace Aquifer below Postgres's limit (for example `AQUIFER_RPS=16`, 80%), so Hatchet's Postgres has headroom. This is the configuration Aquifer is meant for, and it costs Hatchet's throughput a little to buy the latency back.
-2. Why small tenants get `queue_fair_share` or `upstream_queue` 429s at all (an Aquifer question).
+2. ~~Why small tenants get `queue_fair_share` or `upstream_queue` 429s at all.~~ Fixed in aquifer#125; see the re-run above.
 3. More runs per configuration, given B's spread.

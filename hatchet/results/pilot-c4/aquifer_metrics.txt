@@ -1,0 +1,3 @@
+aquifer_dispatch_attempts_total{target="http://891e739f5441d8.vm.aqb-hatchet-pilot-c4.internal:8080",status_class="2xx"} 95746
+aquifer_admission_rejected_total{reason="queue_fair_share"} 4265
+aquifer_admission_rejected_total{reason="upstream_queue"} 11468

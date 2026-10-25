@@ -1,0 +1,9 @@
+config=C
+started=2026-10-25T04:51Z
+harness_image=ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:2c9c4ffbeeac7a5c8ec7da53dcc2a7624b94bd15
+aquifer=630501d
+region=iad
+rate=20
+tenant_max_runs=50
+engine_db_conns=100 trigger_slots=20 buffer_size=50 buffer_flush=25ms
+note=DONE copied by hand (sftp of DONE failed; driver exit 0)
