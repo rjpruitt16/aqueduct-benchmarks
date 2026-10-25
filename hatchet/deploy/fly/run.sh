@@ -13,6 +13,7 @@
 #                   (default ghcr.io/rjpruitt16/hatchet-aquifer-api:v0.110.8-aqueduct-ff494eb)
 #   RATE            documents/s at 100% (default 50; set from calibration)
 #   PHASES, SCALE   passed to the driver (defaults: the agreed 75-minute run)
+#   DRAIN_MAX       how long the driver waits for outstanding work (default 30m)
 #   WORKERS         worker machines (default 3)
 #   KEEP=1          leave the app running after the run, for debugging
 #   AQUIFER_FLUSH_MS  Aquifer's disk flush interval in C (default: Aquifer's 100 ms; 0 = fsync every write)
@@ -222,6 +223,7 @@ set -- -e ROLE=driver -e HOLD=1 -e OUT=/out -e HATCHET_API="$API" -e HATCHET_CLI
   -e DATABASE_URL="$DB" -e RATE="${RATE:-50}" -e LISTEN=:8080
 [ -n "${PHASES:-}" ] && set -- "$@" -e PHASES="$PHASES"
 [ -n "${SCALE:-}" ] && set -- "$@" -e SCALE="$SCALE"
+[ -n "${DRAIN_MAX:-}" ] && set -- "$@" -e DRAIN_MAX="$DRAIN_MAX"
 if [ "$CONFIG" = C ]; then
   set -- "$@" -e AQUIFER_URL="http://$AQUIFER_HOST:8080" -e PUBLIC_URL="http://$DRIVER_HOST:8080"
 fi
@@ -246,6 +248,10 @@ for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log;
 done
 fly ssh console -a "$APP" --machine "$(machine_id driver)" -C "cat /out/DONE" 2>/dev/null | tr -d "\r" > "$OUT/DONE" && [ -s "$OUT/DONE" ] || missing="$missing DONE"
 [ -z "$missing" ] || fail "could not copy:$missing"
+if [ "$CONFIG" = C ]; then
+  fly ssh console -a "$APP" --machine "$(machine_id aquifer)" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
+    | grep -E '^aquifer_(admission_rejected_total|dispatch_attempts_total)' | sed 's/target="[^"]*"/target="hatchet-api"/' > "$OUT/aquifer_metrics.txt" || true
+fi
 # Machine sizes and images only: the full config holds the token and the
 # database password.
 fly machine list -a "$APP" --json \
@@ -262,6 +268,8 @@ fly machine list -a "$APP" --json \
   echo "tenant_max_runs=${TENANT_MAX_RUNS:-50}"
   echo "engine_db_conns=${ENGINE_DB_CONNS:-100} trigger_slots=${TRIGGER_SLOTS:-5} buffer_size=${BUFFER_SIZE:-10} buffer_flush=${BUFFER_FLUSH:-10ms}"
   [ -n "${PHASES:-}" ] && echo "phases=$PHASES"
+  echo "drain_max=${DRAIN_MAX:-30m}"
+  [ "$CONFIG" = C ] && echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
 } > "$OUT/run.txt"
 status=$(cat "$OUT/DONE")
