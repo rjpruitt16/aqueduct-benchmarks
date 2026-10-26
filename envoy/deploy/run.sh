@@ -4,7 +4,7 @@
 # in several regions, waits for every client's report, copies the results
 # out, and destroys the app.
 #
-# Usage: deploy/run.sh <envoy|aquifer> <steady|changing> <run-name>
+# Usage: deploy/run.sh <envoy|aquifer> <steady|changing|smoke> <run-name>
 #
 # Environment:
 #   FLY_ORG        Fly organization (required)
@@ -42,6 +42,10 @@ OUT=results/$NAME
 HERE=$(cd "$(dirname "$0")" && pwd)
 case "$MODE" in envoy | aquifer) ;; *) echo "mode must be envoy or aquifer" >&2; exit 2 ;; esac
 case "$REGIME" in
+  smoke)
+    PHASES=steady:2m:0.5
+    CAPACITY_SCHEDULE=
+    ;;
   steady)
     PHASES=steady:20m:0.5
     CAPACITY_SCHEDULE=
