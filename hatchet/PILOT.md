@@ -57,8 +57,30 @@ The finding above was an Aquifer bug: past the backlog budget, Aquifer refused e
 
 The results copy for both runs failed on the one-line `DONE` file (written by hand afterwards; both drivers exited 0), which left both apps running for about 10 hours before they were destroyed. `run.sh` now reads `DONE` over ssh and stops a failed run's machines.
 
+## Speed series: Aquifer paced below 100%
+
+Eight more runs, 2026-10-25/26, same settings and Aquifer `630501d`: two more of B, and C with Aquifer forwarding at 90% (`AQUIFER_RPS=18`) and 80% (`AQUIFER_RPS=16`) of the calibrated rate. Raw data is in `results/speed-*`.
+
+| | B-3 | B-4 | C90-1 | C90-2 | C90-3 | C80-1 | C80-2 | C80-3 |
+|---|---|---|---|---|---|---|---|---|
+| Completed (of 96,000) | 92,605 | 96,000 | 95,673 | 95,957 | 95,809 | 95,918 | 52,302 | 95,924 |
+| Refused (by Aquifer in C; Hatchet `500` in B-3) | 396 | 0 | 327 | 43 | 191 | 82 | 136 | 76 |
+| Unfinished at the end | 2,999 | 0 | 0 | 0 | 0 | 0 | 43,562 | 0 |
+| Law firm p50 / p99 in overload (min) | 49.6 / 60.6 | 36.9 / 51.0 | 22.0 / 39.7 | 21.8 / 32.5 | 26.2 / 41.4 | 25.9 / 40.1 | 13.6 / 26.5 | 24.3 / 37.4 |
+| Small tenants p50 / p99 in overload (s) | 6.7 / 78.2 | 4.6 / 8.7 | 2.4 / 4.0 | 1.4 / 2.6 | 3.2 / 6.7 | 1.7 / 3.0 | 2.3 / 5.7 | 1.7 / 16.6 |
+| Accounting p99 in overload (s) | 232 | 8.5 | 4.1 | 2.5 | 6.7 | 2.9 | 5.4 | 16.9 |
+| Postgres rows read/s, sustained (thousands) | 332 | 448 | 75 | 59 | 189 | 66 | 53 | 57 |
+| Largest `v1_concurrency_slot` backlog (rows) | 51,977 | 44,776 | 7,939 | 89 | 11,809 | 117 | 35,685 | 426 |
+
+- **Paced below 100%, Hatchet's own queue stays nearly empty.** In four of the six paced runs the `v1_concurrency_slot` backlog never passed 8,000 rows (89–426 in three of them), against 35,000–52,000 in every B run. Postgres reads 5–8 times fewer rows than in B (C90-3, 2–3 times).
+- **That buys the small tenants' and accounting's latency back, and the law firm loses nothing.** Small-tenant p99 is 2.6–6.7 s in five of the six paced runs, against 5.9–78 s for B. The law firm's median is 22–26 min in the paced runs that finished, against 24–50 min for B: pacing below Postgres's limit did not cost it throughput.
+- **Postgres CPU stayed at about 1.8–2.0 of its 2 cores, paced or not** (read from Fly's metrics during the runs up to C80-2; not saved with the results). The gain does not come from CPU headroom, as the open question below assumed. It comes from Hatchet's queue tables staying small, so each scheduling query reads less.
+- **Two runs failed in Hatchet, one of each.** In B-3 Hatchet's API returned `500` for about 8 minutes (396 documents refused, 2,999 never started). In C80-2 Hatchet stopped completing jobs about 30 minutes in while Postgres sat idle, and 43,562 documents were unfinished at the end. The Fly logs were gone by the time the runs were looked at, so the cause is unknown; `run.sh` now saves them. C80-3 completed everything but had a 21 s gap in the small tenants' completions, which shows in its p99.
+- Aquifer refused 0.05–0.35% of documents (the law firm's, after 6 attempts).
+
 ## Open questions for the next runs
 
-1. Pace Aquifer below Postgres's limit (for example `AQUIFER_RPS=16`, 80%), so Hatchet's Postgres has headroom. This is the configuration Aquifer is meant for, and it costs Hatchet's throughput a little to buy the latency back.
+1. ~~Pace Aquifer below Postgres's limit (for example `AQUIFER_RPS=16`, 80%), so Hatchet's Postgres has headroom.~~ Done; see the speed series above.
 2. ~~Why small tenants get `queue_fair_share` or `upstream_queue` 429s at all.~~ Fixed in aquifer#125; see the re-run above.
-3. More runs per configuration, given B's spread.
+3. What stalls Hatchet in runs like C80-2 and B-3. The next runs keep Fly's logs.
+4. The experiments in [NEXT.md](NEXT.md).
