@@ -87,6 +87,15 @@ cleanup() {
   fi
 }
 
+# Retries a Fly call that is safe to repeat; the API times out now and then.
+retry() {
+  for try in 1 2 3 4; do
+    "$@" && return 0
+    sleep 10
+  done
+  return 1
+}
+
 machine_id() { fly machine list -a "$APP" --json | jq -r --arg n "$1" '.[] | select(.name == $n) | .id'; }
 host() { echo "$(machine_id "$1").vm.$APP.internal"; }
 # Runs a command on a machine and prints its output.
@@ -163,7 +172,7 @@ done
 # Clients in some regions can take minutes to start, so leave room and check
 # that every client is running before the clock starts.
 START_AT=$(($(date +%s) + 360))
-fly machine update "$(machine_id backend)" -a "$APP" -y -e START_AT="$START_AT" >/dev/null
+retry fly machine update "$(machine_id backend)" -a "$APP" -y -e START_AT="$START_AT" >/dev/null
 echo "== starting clients; load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
 for spec in $CLIENTS; do
   region=${spec%%:*}
@@ -172,8 +181,8 @@ for spec in $CLIENTS; do
   set -- -e ROLE=client -e MODE="$MODE" -e TARGET="$FRONT" -e BACKEND_URL="http://$BACKEND:8080/work" \
     -e PUBLIC_URL="http://$(host "$m"):8081" -e NAME="$region" -e TENANTS="$tenants" -e PHASES="$PHASES" \
     -e START_AT="$START_AT" -e REPORT_URL="http://$BACKEND:8080/report/$region"
-  fly machine update "$(machine_id "$m")" -a "$APP" -y --skip-start "$@" >/dev/null
-  fly machine start "$(machine_id "$m")" -a "$APP" >/dev/null
+  retry fly machine update "$(machine_id "$m")" -a "$APP" -y --skip-start "$@" >/dev/null
+  retry fly machine start "$(machine_id "$m")" -a "$APP" >/dev/null
 done
 
 want=$(echo "$CLIENTS" | wc -w | tr -d ' ')
