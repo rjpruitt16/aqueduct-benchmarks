@@ -31,7 +31,7 @@ No run had duplicate completions or `never_started` documents.
 
 ## Fixed while running the pilot
 
-These were harness bugs, not Hatchet or Aquifer behaviour. Data from before the fixes is kept in `results/*-aborted*` and is not used above.
+These were harness bugs, not Hatchet or Aquifer behaviour. The runs from before the fixes were removed.
 
 - The driver had one submission queue for all tenants, so when Aquifer refused submissions the small tenants' documents waited behind the law firm's inside the driver. Each tenant now has its own queue and submitters.
 - Aquifer's config listed only Hatchet's API, so its completion webhooks to the driver fell under the 2 requests/s default for unknown hosts. The webhook backlog then tripped Aquifer's `webhook_backlog` admission rule. The driver now has its own upstream entry.
