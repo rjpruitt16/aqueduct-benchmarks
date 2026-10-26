@@ -26,8 +26,11 @@
 //	BACKOFF_BASE    first backoff (default 200ms)
 //	BACKOFF_MAX     backoff cap (default 20s)
 //	TIMEOUT         per-attempt timeout (default 10s)
-//	REPORT_URL      where to POST the final report
+//	REPORT_URL      where to POST the final report; NAME is appended
 //	LISTEN          webhook listener address (default :8081)
+//	CONFIG_URL      if set, wait for a JSON object of these settings there
+//	                and apply it before starting (so a run can start clients
+//	                before it knows the shared settings)
 package main
 
 import (
@@ -108,6 +111,12 @@ type client struct {
 }
 
 func main() {
+	if u := os.Getenv("CONFIG_URL"); u != "" {
+		loadConfig(u)
+	}
+	if os.Getenv("PUBLIC_URL") == "" && os.Getenv("FLY_MACHINE_ID") != "" {
+		os.Setenv("PUBLIC_URL", fmt.Sprintf("http://%s.vm.%s.internal:8081", os.Getenv("FLY_MACHINE_ID"), os.Getenv("FLY_APP_NAME")))
+	}
 	c := &client{
 		mode:        envStr("MODE", "envoy"),
 		target:      strings.TrimRight(os.Getenv("TARGET"), "/"),
@@ -236,6 +245,7 @@ func main() {
 	raw, _ := json.Marshal(report)
 	c.mu.Unlock()
 	if u := os.Getenv("REPORT_URL"); u != "" {
+		u = strings.TrimRight(u, "/") + "/" + name
 		for i := 0; i < 10; i++ {
 			resp, err := http.Post(u, "application/json", bytes.NewReader(raw))
 			if err == nil && resp.StatusCode < 300 {
@@ -250,6 +260,30 @@ func main() {
 	}
 	os.Stdout.Write(raw)
 	log.Printf("%s: done", name)
+}
+
+// loadConfig polls url until it returns the run's settings, then sets them
+// in the environment. Settings already in the environment win.
+func loadConfig(url string) {
+	for {
+		resp, err := http.Get(url)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			var cfg map[string]string
+			err = json.NewDecoder(resp.Body).Decode(&cfg)
+			resp.Body.Close()
+			if err == nil {
+				for k, v := range cfg {
+					if os.Getenv(k) == "" {
+						os.Setenv(k, v)
+					}
+				}
+				return
+			}
+		} else if err == nil {
+			resp.Body.Close()
+		}
+		time.Sleep(2 * time.Second)
+	}
 }
 
 // run carries one job to an outcome and records it.

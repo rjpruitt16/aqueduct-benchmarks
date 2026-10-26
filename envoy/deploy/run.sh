@@ -109,20 +109,22 @@ echo "== creating $APP in $FLY_ORG/$REGION ($MODE, $REGIME)"
 fly apps create "$APP" -o "$FLY_ORG" >/dev/null
 trap cleanup EXIT
 
-START_AT=$(($(date +%s) + 600)) # set properly once everything is up
-
-echo "== clients (created first so the front door knows their addresses)"
-for spec in $CLIENTS; do
-  region=${spec%%:*}
-  fly machine create "$IMAGE" -a "$APP" -n "client-$region" -r "$region" --vm-size shared-cpu-2x --vm-memory 1024 \
-    --restart no >/dev/null
-done
-
 echo "== backend"
 fly machine run "$IMAGE" -a "$APP" -n backend -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
   --restart on-failure --detach -e ROLE=backend -e WORKERS=8 -e SERVICE_MS=200 -e QUEUE_MAX=64 \
-  -e ADVERTISE=1 -e START_AT="$START_AT" -e CAPACITY_SCHEDULE="$CAPACITY_SCHEDULE" >/dev/null
+  -e ADVERTISE=1 -e CAPACITY_SCHEDULE="$CAPACITY_SCHEDULE" >/dev/null
 BACKEND=$(host backend)
+
+# Clients start now and wait for the run's shared settings, which the backend
+# serves once every machine is up: updating a machine in a far region can
+# take minutes, starting one takes seconds.
+echo "== clients"
+for spec in $CLIENTS; do
+  region=${spec%%:*}
+  fly machine run "$IMAGE" -a "$APP" -n "client-$region" -r "$region" --vm-size shared-cpu-2x --vm-memory 1024 \
+    --restart no --detach -e ROLE=client -e NAME="$region" -e TENANTS="${spec#*:}" \
+    -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
+done
 
 cfg=$(mktemp)
 if [ "$MODE" = envoy ]; then
@@ -169,28 +171,21 @@ until on backend "wget -qO- -T 3 $FRONT/health" >/dev/null || on backend "wget -
   sleep 5
 done
 
-# Clients in some regions can take minutes to start, so leave room and check
-# that every client is running before the clock starts.
-START_AT=$(($(date +%s) + 360))
-retry fly machine update "$(machine_id backend)" -a "$APP" -y -e START_AT="$START_AT" >/dev/null
-echo "== starting clients; load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
-for spec in $CLIENTS; do
-  region=${spec%%:*}
-  tenants=$(echo "${spec#*:}")
-  m=client-$region
-  set -- -e ROLE=client -e MODE="$MODE" -e TARGET="$FRONT" -e BACKEND_URL="http://$BACKEND:8080/work" \
-    -e PUBLIC_URL="http://$(host "$m"):8081" -e NAME="$region" -e TENANTS="$tenants" -e PHASES="$PHASES" \
-    -e START_AT="$START_AT" -e REPORT_URL="http://$BACKEND:8080/report/$region"
-  retry fly machine update "$(machine_id "$m")" -a "$APP" -y --skip-start "$@" >/dev/null
-  retry fly machine start "$(machine_id "$m")" -a "$APP" >/dev/null
-done
-
 want=$(echo "$CLIENTS" | wc -w | tr -d ' ')
+i=0
 until [ "$(fly machine list -a "$APP" --json | jq '[.[] | select((.name | startswith("client-")) and .state == "started")] | length')" -ge "$want" ]; do
-  [ "$(date +%s)" -ge $((START_AT - 10)) ] && fail "not every client was running before the load started"
+  i=$((i + 1))
+  [ "$i" -gt 60 ] && fail "not every client started within 10 minutes"
   sleep 10
 done
-echo "   every client is running, $((START_AT - $(date +%s))) s before the start"
+
+START_AT=$(($(date +%s) + 60))
+config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$BACKEND:8080/work" \
+  --arg phases "$PHASES" --arg start "$START_AT" --arg report "http://$BACKEND:8080/report" \
+  '{MODE: $mode, TARGET: $target, BACKEND_URL: $backend, PHASES: $phases, START_AT: $start, REPORT_URL: $report}')
+retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
+  fail "could not publish the run's settings"
+echo "== load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
 
 echo "== waiting for the clients' reports"
 i=0

@@ -18,7 +18,8 @@
 //	QUEUE_MAX          waiting requests before 503 (default 64)
 //	CAPACITY_SCHEDULE  capacity changes after START_AT, e.g. "20m:16"
 //	ADVERTISE          1 to send X-Aqueduct-Rps / X-Aqueduct-Max-Concurrent
-//	START_AT           Unix seconds the run starts (default now)
+//	START_AT           Unix seconds the run starts; otherwise the START_AT in
+//	                   the run configuration POSTed to /config
 //	OUT                directory for results (default /out)
 //	LISTEN             address (default :8080)
 package main
@@ -58,6 +59,9 @@ type backend struct {
 	seen    map[string]int
 	tenants map[string]*tenantStats
 	out     string
+
+	config    []byte
+	configSet chan struct{}
 }
 
 func main() {
@@ -69,25 +73,55 @@ func main() {
 		seen:      map[string]int{},
 		tenants:   map[string]*tenantStats{},
 		out:       envStr("OUT", "/out"),
+		configSet: make(chan struct{}),
 	}
 	b.cond = sync.NewCond(&b.mu)
 	if err := os.MkdirAll(filepath.Join(b.out, "clients"), 0o755); err != nil {
 		log.Fatal(err)
 	}
-	start := time.Now()
-	if s := os.Getenv("START_AT"); s != "" {
+	go func() {
+		s := os.Getenv("START_AT")
+		if s == "" {
+			<-b.configSet
+			var cfg map[string]string
+			json.Unmarshal(b.config, &cfg)
+			s = cfg["START_AT"]
+		}
 		sec, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
 			log.Fatalf("START_AT: %v", err)
 		}
-		start = time.Unix(sec, 0)
-	}
-	go b.schedule(start, os.Getenv("CAPACITY_SCHEDULE"))
-	go b.sample(start)
+		start := time.Unix(sec, 0)
+		go b.sample(start)
+		b.schedule(start, os.Getenv("CAPACITY_SCHEDULE"))
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /work", b.work)
 	mux.HandleFunc("POST /report/{name}", b.report)
+	// The run configuration the clients share, set once every client is up.
+	mux.HandleFunc("POST /config", func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		b.mu.Lock()
+		first := b.config == nil
+		b.config = raw
+		b.mu.Unlock()
+		if first {
+			close(b.configSet)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /config", func(w http.ResponseWriter, _ *http.Request) {
+		b.mu.Lock()
+		raw := b.config
+		b.mu.Unlock()
+		if raw == nil {
+			http.Error(w, "not set yet", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(raw)
+	})
 	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(b.summary())
