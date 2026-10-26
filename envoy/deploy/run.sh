@@ -3,7 +3,7 @@
 # front door in one region, load clients in several regions, waits for every
 # client's report, copies the results out, and destroys the app.
 #
-# Usage: deploy/run.sh <envoy|aquifer|both> <steady|changing|scaleout|smoke|scaleout-smoke> <run-name>
+# Usage: deploy/run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>
 #
 # Front doors: envoy, aquifer, or both (Envoy at the edge, Aquifer behind it).
 #
@@ -23,6 +23,18 @@
 # (Envoy ignores them). Both front doors get the same ceilings: 80 requests/s
 # (100 in scaleout, the capacity after it) and 32-64 in flight.
 #
+# The chains regime is a different workload: tenants work in lanes, each
+# running chains of four dependent jobs, and retry every refused step until
+# it succeeds (polite tenants with exponential backoff up to 60 s, aggressive
+# ones every 100 ms). The overload is deeper and longer: 3x for 15 minutes,
+# then 2x for 10, with capacity doubling 20 minutes in. Its tenants, by
+# region and retry style (1x = 40 jobs/s):
+#   big          20  REGION  polite
+#   near-polite   5  REGION  polite
+#   near-aggr     5  REGION  aggressive
+#   far-polite    5  lhr     polite
+#   far-aggr      5  lhr     aggressive
+#
 # Tenants (jobs/s at 1x load, 1x = 40 jobs/s = the starting capacity):
 #   big      20    in REGION, next to the backend
 #   medium   10    iad
@@ -35,9 +47,9 @@
 # for Envoy and Aquifer); one shared-cpu-2x client per region.
 set -eu
 
-MODE=${1:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|smoke|scaleout-smoke> <run-name>}
-REGIME=${2:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|smoke|scaleout-smoke> <run-name>}
-NAME=${3:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|smoke|scaleout-smoke> <run-name>}
+MODE=${1:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>}
+REGIME=${2:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>}
+NAME=${3:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>}
 : "${FLY_ORG:?set FLY_ORG}"
 : "${IMAGE:?set IMAGE}"
 ENVOY_IMAGE=${ENVOY_IMAGE:-envoyproxy/envoy:v1.39.3}
@@ -49,6 +61,7 @@ case "$MODE" in envoy | aquifer | both) ;; *) echo "mode must be envoy, aquifer 
 EXTRA_BACKENDS=""
 ONLINE_AFTER=15m
 GLOBAL_RPS=80
+WORKLOAD=jobs
 case "$REGIME" in
   smoke)
     PHASES=steady:2m:0.5
@@ -75,7 +88,17 @@ case "$REGIME" in
     ONLINE_AFTER=3m
     GLOBAL_RPS=100
     ;;
-  *) echo "regime must be steady, changing, scaleout, smoke or scaleout-smoke" >&2; exit 2 ;;
+  chains)
+    PHASES=steady:5m:0.5,overload:15m:3,sustained:10m:2,recovery:10m:0.5
+    CAPACITY_SCHEDULE=20m:16
+    WORKLOAD=chains
+    ;;
+  chains-smoke)
+    PHASES=steady:2m:0.5,overload:4m:3,recovery:2m:0.5
+    CAPACITY_SCHEDULE=4m:16
+    WORKLOAD=chains
+    ;;
+  *) echo "regime must be steady, changing, scaleout, chains, smoke, scaleout-smoke or chains-smoke" >&2; exit 2 ;;
 esac
 for tool in fly jq base64; do
   command -v "$tool" >/dev/null || { echo "run.sh needs $tool" >&2; exit 2; }
@@ -84,6 +107,9 @@ mkdir -p "$OUT"
 
 # Client regions and the tenants each one plays.
 CLIENTS="$REGION:big:20 iad:medium:10,small-1:2.5 dfw:small-2:2.5,small-3:2.5 lhr:small-4:2.5"
+if [ "$WORKLOAD" = chains ]; then
+  CLIENTS="$REGION:big:20,near-polite:5,near-aggr:5:aggressive lhr:far-polite:5,far-aggr:5:aggressive"
+fi
 TENANT_RPS=20 # per-tenant limit in Envoy: half the starting capacity
 
 fail() {
@@ -266,9 +292,10 @@ done
 START_AT=$(($(date +%s) + 60))
 config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$BACKEND:8080/work" \
   --arg phases "$PHASES" --arg start "$START_AT" --arg report "http://$BACKEND:8080/report" \
-  --arg pool "$POOL" --arg register "$REGISTER_URL" \
+  --arg pool "$POOL" --arg register "$REGISTER_URL" --arg workload "$WORKLOAD" \
   '{MODE: $mode, TARGET: $target, BACKEND_URL: $backend, PHASES: $phases, START_AT: $start, REPORT_URL: $report}
-   + (if $pool == "" then {} else {POOL: $pool, REGISTER_URL: $register} end)')
+   + (if $pool == "" then {} else {POOL: $pool, REGISTER_URL: $register} end)
+   + (if $workload == "chains" then {WORKLOAD: "chains", MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", DRAIN: "60m"} else {} end)')
 retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
   fail "could not publish the run's settings"
 echo "== load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
@@ -277,7 +304,7 @@ echo "== waiting for the clients' reports"
 i=0
 until [ "$(on backend "ls /out/clients" | grep -c json)" -ge "$want" ]; do
   i=$((i + 1))
-  [ "$i" -gt 180 ] && fail "clients did not report within 90 minutes"
+  [ "$i" -gt 240 ] && fail "clients did not report within 2 hours"
   sleep 30
 done
 
@@ -327,6 +354,7 @@ fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config
   echo "region=$REGION"
   echo "clients=$CLIENTS"
   echo "phases=$PHASES"
+  echo "workload=$WORKLOAD"
   echo "capacity_schedule=$CAPACITY_SCHEDULE"
   echo "extra_backends=$EXTRA_BACKENDS"
   echo "global_rps=$GLOBAL_RPS"

@@ -10,6 +10,19 @@
 // 2 s target; those count as late if the answer arrives after it. The job
 // still runs to its normal end either way (unless ENFORCE_DEADLINE=1).
 //
+// Two workloads:
+//
+//	jobs    (default) independent jobs arriving at each tenant's rate,
+//	        whatever happened to the earlier ones.
+//	chains  each tenant works in lanes. A lane runs a chain of four jobs,
+//	        A, then B and C together, then D, and starts the next chain
+//	        CHAIN_EVERY after the last one started, or as soon as it
+//	        finishes if it ran longer. A step that is refused is retried
+//	        until it succeeds, so a slow step holds up its chain and its
+//	        lane. Lanes per tenant: rate x phase multiplier x CHAIN_EVERY
+//	        / 4, rounded up, so with no contention the offered load is the
+//	        same as in the jobs workload.
+//
 // Configuration (environment):
 //
 //	MODE            envoy | aquifer | both (aquifer behind an Envoy edge:
@@ -19,7 +32,13 @@
 //	POOL            send to this Aquifer pool instead of BACKEND_URL (aquifer mode)
 //	PUBLIC_URL      this client's base URL for Aquifer's webhooks
 //	NAME            name for the report, e.g. the region
-//	TENANTS         name:rate pairs at 1x load, e.g. "big:20,small-1:1"
+//	TENANTS         name:rate[:style] at 1x load, e.g. "big:20,small-1:1:aggressive".
+//	                Styles: polite (default) backs off exponentially with
+//	                full jitter and honors Retry-After; aggressive retries
+//	                every AGGRESSIVE_DELAY and ignores Retry-After.
+//	WORKLOAD        jobs | chains (default jobs)
+//	CHAIN_EVERY     how often a lane starts a chain (default 4s)
+//	AGGRESSIVE_DELAY  an aggressive tenant's retry delay (default 100ms)
 //	PHASES          name:duration:multiplier, e.g. "steady:10m:0.5,spike:5m:3"
 //	START_AT        Unix seconds to start (all clients share it)
 //	DRAIN           how long to wait for outstanding work (default 10m)
@@ -28,7 +47,8 @@
 //	ENFORCE_DEADLINE  1 to give up on a job at its deadline (Aquifer's
 //	                execute_before; no Envoy retry past it). Off by default:
 //	                the deadline is only measured. The env series ran with it on.
-//	MAX_ATTEMPTS    attempts per job, or per submission (default 6)
+//	MAX_ATTEMPTS    attempts per job, or per submission (default 6; 0 retries
+//	                until it succeeds)
 //	BACKOFF_BASE    first backoff (default 200ms)
 //	BACKOFF_MAX     backoff cap (default 20s)
 //	TIMEOUT         per-attempt timeout (default 10s)
@@ -65,8 +85,9 @@ type phase struct {
 }
 
 type tenant struct {
-	name string
-	rate float64
+	name  string
+	rate  float64
+	style string
 }
 
 type job struct {
@@ -75,6 +96,7 @@ type job struct {
 	phase    string
 	created  time.Time
 	deadline time.Time // zero: none
+	attempts int
 	done     chan result
 }
 
@@ -93,6 +115,15 @@ type tally struct {
 	DeadlineJobs   int            `json:"deadline_jobs"`
 	DeadlineMet    int            `json:"deadline_met"`
 	DeadlineLate   int            `json:"deadline_late"`
+	MostAttempts   int            `json:"most_attempts"`
+	BackoffSeconds float64        `json:"backoff_seconds"`
+	attempts       map[string][]float64
+	AttemptsP50    map[string]float64 `json:"attempts_p50"`
+	AttemptsP99    map[string]float64 `json:"attempts_p99"`
+	Chains         int                `json:"chains_completed"`
+	chain          map[string][]float64
+	ChainP50       map[string]float64 `json:"chain_p50_ms,omitempty"`
+	ChainP99       map[string]float64 `json:"chain_p99_ms,omitempty"`
 	latency        map[string][]float64
 	firstAnswer    map[string][]float64
 	LatencyP50     map[string]float64 `json:"latency_p50_ms"`
@@ -106,7 +137,8 @@ type client struct {
 	enforce                             bool
 	pool                                string
 	maxAttempts                         int
-	base, cap, timeout                  time.Duration
+	base, cap, timeout, aggressive      time.Duration
+	styles                              map[string]string
 	http                                *http.Client
 
 	mu       sync.Mutex
@@ -115,6 +147,7 @@ type client struct {
 	early    map[string]result
 	byID     map[string]*job
 	interval map[string]int
+	sent     map[string]int
 	open     atomic.Int64
 }
 
@@ -136,11 +169,14 @@ func main() {
 		base:        envDur("BACKOFF_BASE", 200*time.Millisecond),
 		cap:         envDur("BACKOFF_MAX", 20*time.Second),
 		timeout:     envDur("TIMEOUT", 10*time.Second),
+		aggressive:  envDur("AGGRESSIVE_DELAY", 100*time.Millisecond),
+		styles:      map[string]string{},
 		tallies:     map[string]*tally{},
 		byAqID:      map[string]*job{},
 		early:       map[string]result{},
 		byID:        map[string]*job{},
 		interval:    map[string]int{},
+		sent:        map[string]int{},
 	}
 	c.http = &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 512, MaxConnsPerHost: 0}}
 	if c.mode == "both" {
@@ -156,6 +192,11 @@ func main() {
 	deadline := envDur("DEADLINE", 2*time.Second)
 	for _, t := range tenants {
 		c.tallies[t.name] = newTally()
+		c.styles[t.name] = t.style
+	}
+	workload := envStr("WORKLOAD", "jobs")
+	if workload != "jobs" && workload != "chains" {
+		log.Fatalf("WORKLOAD must be jobs or chains, got %q", workload)
 	}
 
 	if c.mode == "aquifer" {
@@ -185,17 +226,23 @@ func main() {
 				return
 			case <-tick.C:
 				c.mu.Lock()
-				done := c.interval
-				c.interval = map[string]int{}
+				done, sent := c.interval, c.sent
+				c.interval, c.sent = map[string]int{}, map[string]int{}
 				c.mu.Unlock()
-				intervals = append(intervals, map[string]any{"t": int(time.Since(start).Seconds()), "open": c.open.Load(), "completed": done})
+				intervals = append(intervals, map[string]any{"t": int(time.Since(start).Seconds()), "open": c.open.Load(), "completed": done, "requests": sent})
 			}
 		}
 	}()
 
 	var wg sync.WaitGroup
 	seq := atomic.Int64{}
+	if workload == "chains" {
+		c.chains(name, tenants, phases, envDur("CHAIN_EVERY", 4*time.Second), &seq, &wg)
+	}
 	for _, p := range phases {
+		if workload == "chains" {
+			break
+		}
 		log.Printf("phase %s: %.2fx for %s", p.name, p.mult, p.dur)
 		end := time.Now().Add(p.dur)
 		var pw sync.WaitGroup
@@ -306,8 +353,101 @@ func loadConfig(url string) {
 	}
 }
 
-// run carries one job to an outcome and records it.
-func (c *client) run(j *job) {
+// chains starts each tenant's lanes and returns once the last phase is over;
+// wg tracks the lanes still running.
+func (c *client) chains(name string, tenants []tenant, phases []phase, every time.Duration, seq *atomic.Int64, wg *sync.WaitGroup) {
+	type window struct {
+		p          phase
+		start, end time.Time
+		lanes      map[string]int
+	}
+	var ws []window
+	at := time.Now()
+	most := map[string]int{}
+	for _, p := range phases {
+		w := window{p: p, start: at, end: at.Add(p.dur), lanes: map[string]int{}}
+		for _, t := range tenants {
+			n := int(math.Ceil(t.rate * p.mult * every.Seconds() / 4))
+			w.lanes[t.name] = n
+			most[t.name] = max(most[t.name], n)
+		}
+		ws = append(ws, w)
+		at = w.end
+	}
+	end := at
+	phaseAt := func(now time.Time) *window {
+		for i := range ws {
+			if now.Before(ws[i].end) {
+				return &ws[i]
+			}
+		}
+		return nil
+	}
+	for _, t := range tenants {
+		for lane := 0; lane < most[t.name]; lane++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				next := time.Now()
+				for {
+					time.Sleep(time.Until(next))
+					now := time.Now()
+					w := phaseAt(now)
+					if w == nil {
+						return
+					}
+					if lane >= w.lanes[t.name] {
+						// Not needed in this phase: wait for the next one.
+						next = w.end
+						continue
+					}
+					next = now.Add(every)
+					c.open.Add(1)
+					c.chain(name, t.name, w.p.name, now, seq)
+					c.open.Add(-1)
+				}
+			}()
+		}
+	}
+	// Each lane holds wg until it stops: a lane running a chain at the end
+	// finishes it first.
+	time.Sleep(time.Until(end))
+}
+
+// chain runs A, then B and C together, then D, each until it succeeds, and
+// records how long the whole chain took.
+func (c *client) chain(name, tenant, phase string, start time.Time, seq *atomic.Int64) {
+	step := func(s string) {
+		j := &job{id: fmt.Sprintf("%s-%s-%d%s", name, tenant, seq.Add(1), s), tenant: tenant, phase: phase, created: time.Now(), done: make(chan result, 1)}
+		c.mu.Lock()
+		c.tallies[tenant].Offered++
+		c.mu.Unlock()
+		base := j.id
+		for try := 2; !c.run(j); try++ {
+			// Only Aquifer can report a failure once retries are unlimited;
+			// hand the work over again under a new key.
+			j.id = fmt.Sprintf("%s-again%d", base, try)
+			j.done = make(chan result, 1)
+		}
+	}
+	step("a")
+	var bc sync.WaitGroup
+	bc.Add(2)
+	go func() { defer bc.Done(); step("b") }()
+	go func() { defer bc.Done(); step("c") }()
+	bc.Wait()
+	step("d")
+	elapsed := float64(time.Since(start).Milliseconds())
+	c.mu.Lock()
+	t := c.tallies[tenant]
+	t.Chains++
+	t.chain[phase] = append(t.chain[phase], elapsed)
+	c.mu.Unlock()
+}
+
+// run carries one job to an outcome and records it, reporting whether it
+// succeeded.
+func (c *client) run(j *job) bool {
 	var res result
 	if c.mode == "envoy" {
 		res = c.viaEnvoy(j)
@@ -322,6 +462,8 @@ func (c *client) run(j *job) {
 		t.Completed++
 		c.interval[j.tenant]++
 		t.latency[j.phase] = append(t.latency[j.phase], elapsed)
+		t.attempts[j.phase] = append(t.attempts[j.phase], float64(j.attempts+1))
+		t.MostAttempts = max(t.MostAttempts, j.attempts+1)
 		if !j.deadline.IsZero() {
 			if time.Now().After(j.deadline) {
 				t.DeadlineLate++
@@ -329,9 +471,10 @@ func (c *client) run(j *job) {
 				t.DeadlineMet++
 			}
 		}
-		return
+		return true
 	}
 	t.Failed[res.why]++
+	return false
 }
 
 func (c *client) viaEnvoy(j *job) result {
@@ -359,7 +502,7 @@ func (c *client) viaEnvoy(j *job) result {
 		} else if errorsIsTimeout(err) {
 			why = "timeout"
 		}
-		if attempt >= c.maxAttempts {
+		if c.maxAttempts > 0 && attempt >= c.maxAttempts {
 			return result{why: why}
 		}
 		if !c.backoff(j, attempt, retryAfter) {
@@ -416,7 +559,7 @@ func (c *client) viaAquifer(j *job) result {
 				c.refused(j)
 			}
 		}
-		if attempt >= c.maxAttempts {
+		if c.maxAttempts > 0 && attempt >= c.maxAttempts {
 			return result{why: why}
 		}
 		if !c.backoff(j, attempt, retryAfter) {
@@ -508,11 +651,21 @@ func (c *client) submit(body map[string]any) (int, time.Duration, string, error)
 }
 
 // backoff sleeps before the next attempt: full jitter on an exponential
-// window, but never less than Retry-After. With ENFORCE_DEADLINE it returns
-// false when the job's deadline would pass first.
+// window, but never less than Retry-After; an aggressive tenant waits
+// AGGRESSIVE_DELAY instead. With ENFORCE_DEADLINE it returns false when the
+// job's deadline would pass first.
 func (c *client) backoff(j *job, attempt int, retryAfter time.Duration) bool {
-	window := min(c.cap, time.Duration(float64(c.base)*math.Pow(2, float64(attempt-1))))
+	window := min(c.cap, time.Duration(float64(c.base)*math.Pow(2, float64(min(attempt-1, 30)))))
 	d := max(time.Duration(rand.Float64()*float64(window)), retryAfter)
+	if c.styles[j.tenant] == "aggressive" {
+		d = c.aggressive
+	}
+	j.attempts++
+	c.mu.Lock()
+	t := c.tallies[j.tenant]
+	t.MostAttempts = max(t.MostAttempts, j.attempts+1)
+	t.BackoffSeconds += d.Seconds()
+	c.mu.Unlock()
 	if c.enforce && !j.deadline.IsZero() && time.Now().Add(d).After(j.deadline) {
 		return false
 	}
@@ -523,6 +676,7 @@ func (c *client) backoff(j *job, attempt int, retryAfter time.Duration) bool {
 func (c *client) request(tenant string) {
 	c.mu.Lock()
 	c.tallies[tenant].Requests++
+	c.sent[tenant]++
 	c.mu.Unlock()
 }
 
@@ -541,12 +695,16 @@ func (c *client) firstAnswer(j *job) {
 }
 
 func newTally() *tally {
-	return &tally{Failed: map[string]int{}, latency: map[string][]float64{}, firstAnswer: map[string][]float64{}}
+	return &tally{Failed: map[string]int{}, latency: map[string][]float64{}, firstAnswer: map[string][]float64{}, chain: map[string][]float64{}, attempts: map[string][]float64{}}
 }
 
 func (t *tally) summarize() {
 	t.LatencyP50, t.LatencyP99 = percentiles(t.latency)
 	t.FirstAnswerP50, t.FirstAnswerP99 = percentiles(t.firstAnswer)
+	t.AttemptsP50, t.AttemptsP99 = percentiles(t.attempts)
+	if t.Chains > 0 {
+		t.ChainP50, t.ChainP99 = percentiles(t.chain)
+	}
 }
 
 func percentiles(by map[string][]float64) (p50, p99 map[string]float64) {
@@ -585,12 +743,19 @@ func errorsIsTimeout(err error) bool {
 func parseTenants(spec string) []tenant {
 	var out []tenant
 	for _, part := range strings.Split(spec, ",") {
-		name, rate, ok := strings.Cut(strings.TrimSpace(part), ":")
-		r, err := strconv.ParseFloat(rate, 64)
-		if !ok || err != nil {
+		f := strings.Split(strings.TrimSpace(part), ":")
+		if len(f) < 2 || len(f) > 3 {
 			log.Fatalf("TENANTS: bad entry %q", part)
 		}
-		out = append(out, tenant{name, r})
+		r, err := strconv.ParseFloat(f[1], 64)
+		style := "polite"
+		if len(f) == 3 {
+			style = f[2]
+		}
+		if err != nil || (style != "polite" && style != "aggressive") {
+			log.Fatalf("TENANTS: bad entry %q", part)
+		}
+		out = append(out, tenant{f[0], r, style})
 	}
 	return out
 }
