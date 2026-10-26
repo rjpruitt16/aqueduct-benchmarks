@@ -7,8 +7,8 @@
 #     best-case latency it holds the limit at min_concurrency, so that is
 #     set to the concurrency normal traffic needs (8), not below it.
 #   - admission control: reject early when the backend's success rate
-#     drops. It sits after adaptive concurrency so it judges only the
-#     backend's answers, not adaptive concurrency's own 503s.
+#     drops. Adaptive concurrency refuses with 429, which admission control
+#     counts as a success, so it judges only the backend's own answers.
 #   - circuit breakers with a pending queue, and a retry budget so Envoy's
 #     own retries can't snowball
 #   - Envoy retries a 503 or a reset twice, with backoff
@@ -84,6 +84,9 @@ __DESCRIPTORS__
                           buffer: { value: 25 }
                           min_concurrency: 8
                       enabled: { default_value: true, runtime_key: adaptive_concurrency.enabled }
+                      # 429, not the default 503, so admission control below
+                      # doesn't count these refusals as backend failures.
+                      concurrency_limit_exceeded_status: { code: 429 }
                   - name: envoy.filters.http.admission_control
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.admission_control.v3.AdmissionControl

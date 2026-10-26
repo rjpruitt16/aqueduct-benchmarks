@@ -8,6 +8,7 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 
 - **Backend:** a synthetic service ([cmd/backend](cmd/backend/main.go)) with a fixed number of workers (8 at 200 ms: 40 jobs/s). Requests wait for a worker; past 64 waiting it answers `503` with `Retry-After: 1`. When the line is longer than the number of workers, work slows down (up to 3×). Work that has started always finishes, even after the caller gives up, and every execution is counted by job ID, so duplicated work is exact. It advertises its capacity in Aqueduct's headers (`X-Aqueduct-Rps`, `X-Aqueduct-Max-Concurrent`); Envoy ignores them.
 - **Envoy** ([envoy.yaml.tmpl](deploy/envoy.yaml.tmpl)), tuned as a careful team would: per-tenant local rate limits with `Retry-After`, admission control, adaptive concurrency, circuit breakers with a pending queue, and a retry budget on Envoy's own retries.
+- **Envoy tuning notes.** Two settings matter for a fair result. Adaptive concurrency holds its limit at `min_concurrency` while it re-measures the backend's best latency, so that is set to the concurrency normal traffic needs (8); at 4 it blocked ordinary bursts. And it refuses with `429` instead of its default `503`, because admission control counts every `5xx` it sees as a backend failure and otherwise rejected more traffic in response to adaptive concurrency's own refusals. Both were found in trial runs (`results/env-smoke-*`).
 - **Aquifer** with its defaults; per-tenant queues and fair admission are on by default.
 - **Same ceilings for both:** 80 requests/s and 32–64 in flight, twice the starting capacity, so the scale-up below is usable by both.
 - **Clients** ([cmd/client](cmd/client/main.go)) in four regions retry like a good SDK: up to 6 attempts, exponential backoff with full jitter, never sooner than `Retry-After`. Against Envoy that applies to every job; against Aquifer only to a refused submission. 10% of jobs carry a 2 s deadline.
@@ -37,6 +38,14 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 | Fair | each tenant's completed share against its offered share over time |
 
 ## Running
+
+The whole series (three rounds; each round runs both front doors in both regimes side by side):
+
+```sh
+FLY_ORG=... IMAGE=... deploy/series.sh env
+```
+
+One run:
 
 ```sh
 FLY_ORG=... IMAGE=ghcr.io/rjpruitt16/aqueduct-benchmarks-envoy:<commit> deploy/run.sh envoy changing env-c1
