@@ -1,0 +1,8 @@
+mode=aquifer
+regime=smoke
+start_at=1792987507
+image=registry.fly.io/aqb-envoy-images:58f6a17
+region=ord
+clients=ord:big:20 iad:medium:10,small-1:2.5 dfw:small-2:2.5,small-3:2.5 lhr:small-4:2.5
+phases=steady:2m:0.5
+capacity_schedule=
