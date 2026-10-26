@@ -61,6 +61,8 @@ fail() {
 
 cleanup() {
   status=$?
+  # The engine's and workers' logs go with the app; keep what Fly still has.
+  fly logs -a "$APP" --no-tail > "$OUT/fly.log" 2>/dev/null || true
   if [ "${KEEP:-}" = 1 ]; then
     return
   fi
