@@ -160,7 +160,9 @@ until on backend "wget -qO- -T 3 $FRONT/health" >/dev/null || on backend "wget -
   sleep 5
 done
 
-START_AT=$(($(date +%s) + 90))
+# Clients in some regions can take minutes to start, so leave room and check
+# that every client is running before the clock starts.
+START_AT=$(($(date +%s) + 360))
 fly machine update "$(machine_id backend)" -a "$APP" -y -e START_AT="$START_AT" >/dev/null
 echo "== starting clients; load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
 for spec in $CLIENTS; do
@@ -174,8 +176,14 @@ for spec in $CLIENTS; do
   fly machine start "$(machine_id "$m")" -a "$APP" >/dev/null
 done
 
-echo "== waiting for the clients' reports"
 want=$(echo "$CLIENTS" | wc -w | tr -d ' ')
+until [ "$(fly machine list -a "$APP" --json | jq '[.[] | select((.name | startswith("client-")) and .state == "started")] | length')" -ge "$want" ]; do
+  [ "$(date +%s)" -ge $((START_AT - 10)) ] && fail "not every client was running before the load started"
+  sleep 10
+done
+echo "   every client is running, $((START_AT - $(date +%s))) s before the start"
+
+echo "== waiting for the clients' reports"
 i=0
 until [ "$(on backend "ls /out/clients" | grep -c json)" -ge "$want" ]; do
   i=$((i + 1))
@@ -189,8 +197,18 @@ if [ "$MODE" = envoy ]; then
 else
   on backend "wget -qO- $FRONT/metrics" | grep '^aquifer_' | sed 's/[0-9a-f]*\.vm\.[a-z0-9-]*\.internal/<machine>/g' > "$OUT/aquifer-metrics.txt" || true
 fi
-on backend "sh -c 'tar czf - -C /out . | base64'" | tr -d '\r' | base64 -d | tar xzf - -C "$OUT" ||
-  fail "could not copy the backend's results"
+# fly ssh console sometimes cuts output short; retry until the archive is whole.
+copied=""
+for try in 1 2 3 4 5; do
+  on backend "sh -c 'tar czf - -C /out . | base64'" | tr -d '\r' | base64 -d > "$OUT/.bundle.tgz" 2>/dev/null || true
+  if gzip -t "$OUT/.bundle.tgz" 2>/dev/null && tar xzf "$OUT/.bundle.tgz" -C "$OUT"; then
+    copied=1
+    break
+  fi
+  sleep 10
+done
+rm -f "$OUT/.bundle.tgz"
+[ -n "$copied" ] || fail "could not copy the backend's results"
 fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config.image, guest: .config.guest}]' > "$OUT/machines.json"
 {
   echo "mode=$MODE"
