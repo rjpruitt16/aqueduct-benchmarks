@@ -1,22 +1,25 @@
 #!/bin/sh
-# Runs the full series: ROUNDS rounds, each one run of envoy and aquifer in
-# both regimes, side by side, so the two front doors meet the same platform
-# conditions. Waits for each round before starting the next.
+# Runs a series: ROUNDS rounds, each one the RUNS side by side, so every
+# front door meets the same platform conditions. Waits for each round
+# before starting the next.
 #
 # Usage: deploy/series.sh <series-name>   (FLY_ORG and IMAGE as for run.sh)
+#
+#   ROUNDS  default 3
+#   RUNS    mode:regime pairs, default every front door in steady and changing:
+#           "envoy:steady aquifer:steady envoy:changing aquifer:changing"
 set -u
 SERIES=${1:?usage: series.sh <series-name>}
 ROUNDS=${ROUNDS:-3}
+RUNS=${RUNS:-envoy:steady aquifer:steady envoy:changing aquifer:changing}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p logs
 r=1
 while [ "$r" -le "$ROUNDS" ]; do
   echo "== round $r $(date -u +%TZ)"
-  for regime in steady changing; do
-    for mode in envoy aquifer; do
-      name=$SERIES-$mode-$regime-$r
-      sh "$HERE/run.sh" "$mode" "$regime" "$name" > "logs/$name.log" 2>&1 &
-    done
+  for run in $RUNS; do
+    name=$SERIES-${run%%:*}-${run#*:}-$r
+    sh "$HERE/run.sh" "${run%%:*}" "${run#*:}" "$name" > "logs/$name.log" 2>&1 &
   done
   wait
   for f in logs/$SERIES-*-$r.log; do printf '%s: %s\n' "$(basename "$f" .log)" "$(tail -1 "$f")"; done

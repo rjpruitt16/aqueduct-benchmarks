@@ -11,9 +11,11 @@
 //
 // Configuration (environment):
 //
-//	MODE            envoy | aquifer
+//	MODE            envoy | aquifer | both (aquifer behind an Envoy edge:
+//	                the client behaves as in aquifer mode)
 //	TARGET          Envoy's or Aquifer's base URL
 //	BACKEND_URL     the backend's /work URL (aquifer mode)
+//	POOL            send to this Aquifer pool instead of BACKEND_URL (aquifer mode)
 //	PUBLIC_URL      this client's base URL for Aquifer's webhooks
 //	NAME            name for the report, e.g. the region
 //	TENANTS         name:rate pairs at 1x load, e.g. "big:20,small-1:1"
@@ -97,6 +99,7 @@ type tally struct {
 
 type client struct {
 	mode, target, backendURL, publicURL string
+	pool                                string
 	maxAttempts                         int
 	base, cap, timeout                  time.Duration
 	http                                *http.Client
@@ -121,6 +124,7 @@ func main() {
 		mode:        envStr("MODE", "envoy"),
 		target:      strings.TrimRight(os.Getenv("TARGET"), "/"),
 		backendURL:  os.Getenv("BACKEND_URL"),
+		pool:        os.Getenv("POOL"),
 		publicURL:   strings.TrimRight(os.Getenv("PUBLIC_URL"), "/"),
 		maxAttempts: envInt("MAX_ATTEMPTS", 6),
 		base:        envDur("BACKOFF_BASE", 200*time.Millisecond),
@@ -133,6 +137,9 @@ func main() {
 		interval:    map[string]int{},
 	}
 	c.http = &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 512, MaxConnsPerHost: 0}}
+	if c.mode == "both" {
+		c.mode = "aquifer"
+	}
 	if c.mode != "envoy" && c.mode != "aquifer" {
 		log.Fatalf("MODE must be envoy or aquifer, got %q", c.mode)
 	}
@@ -365,6 +372,10 @@ func (c *client) viaAquifer(j *job) result {
 		"webhook_url":    c.publicURL + "/done",
 		"max_retries":    -1,
 	}
+	if c.pool != "" {
+		delete(body, "url")
+		body["pool_id"] = c.pool
+	}
 	if !j.deadline.IsZero() {
 		body["execute_before"] = j.deadline.UnixMilli()
 	}
@@ -476,6 +487,7 @@ func (c *client) submit(body map[string]any) (int, time.Duration, string, error)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.target+"/jobs", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant", body["user_id"].(string)) // for a gateway in front of Aquifer
 	c.request(body["user_id"].(string))
 	resp, err := c.http.Do(req)
 	if err != nil {

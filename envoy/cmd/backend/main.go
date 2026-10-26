@@ -17,20 +17,35 @@
 //	SERVICE_MS         base service time (default 200)
 //	QUEUE_MAX          waiting requests before 503 (default 64)
 //	CAPACITY_SCHEDULE  capacity changes after START_AT, e.g. "20m:16"
-//	ADVERTISE          1 to send X-Aqueduct-Rps / X-Aqueduct-Max-Concurrent
+//	ADVERTISE          how to speak Aqueduct's headers (Envoy ignores them):
+//	                   "" none; "1" the fixed capacity on every response;
+//	                   "live" the current spare capacity, split across the
+//	                   caller's X-Aqueduct-Active-Queues (see liveHeaders)
+//	BACKLOG_SECONDS    with ADVERTISE=live, X-Aqueduct-Max-Backlog is this
+//	                   many seconds of capacity (default 60)
+//	REGISTER_URL       an Aquifer pool's members URL (or REGISTER_URL in the
+//	                   run configuration); if set, the backend registers
+//	                   itself there every 2 s with its current capacity,
+//	                   instead of sending pacing headers
+//	ONLINE_AFTER       stay off the network until this long after START_AT,
+//	                   e.g. "15m": a machine joining the fleet mid-run, at
+//	                   the same moment for every front door
 //	START_AT           Unix seconds the run starts; otherwise the START_AT in
-//	                   the run configuration POSTed to /config
+//	                   the run configuration POSTed to /config, or, with
+//	                   CONFIG_URL, fetched from another backend
 //	OUT                directory for results (default /out)
 //	LISTEN             address (default :8080)
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -55,7 +70,9 @@ type backend struct {
 	waiting   int
 	queueMax  int
 	serviceMs float64
-	advertise bool
+	advertise string
+	backlogS  float64
+	pooled    bool
 
 	seen    map[string]int
 	tenants map[string]*tenantStats
@@ -64,6 +81,12 @@ type backend struct {
 	config    []byte
 	configSet chan struct{}
 	reportMu  sync.Mutex
+
+	// Every execution's job ID, and machine events (start, resume), so a run
+	// with several backend machines can count duplicates across them and
+	// time when each one came online.
+	execs  *bufio.Writer
+	events *json.Encoder
 }
 
 func main() {
@@ -71,7 +94,8 @@ func main() {
 		workers:   envInt("WORKERS", 8),
 		queueMax:  envInt("QUEUE_MAX", 64),
 		serviceMs: float64(envInt("SERVICE_MS", 200)),
-		advertise: os.Getenv("ADVERTISE") == "1",
+		advertise: os.Getenv("ADVERTISE"),
+		backlogS:  float64(envInt("BACKLOG_SECONDS", 60)),
 		seen:      map[string]int{},
 		tenants:   map[string]*tenantStats{},
 		out:       envStr("OUT", "/out"),
@@ -81,11 +105,27 @@ func main() {
 	if err := os.MkdirAll(filepath.Join(b.out, "clients"), 0o755); err != nil {
 		log.Fatal(err)
 	}
+	execs, err := os.Create(filepath.Join(b.out, "executions.txt"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	b.execs = bufio.NewWriter(execs)
+	events, err := os.Create(filepath.Join(b.out, "events.jsonl"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	b.events = json.NewEncoder(events)
+	b.event("start", 0)
+	go b.watchResume()
+	if u := os.Getenv("CONFIG_URL"); u != "" && os.Getenv("START_AT") == "" {
+		go b.fetchConfig(u)
+	}
+	online := make(chan struct{})
 	go func() {
 		s := os.Getenv("START_AT")
+		var cfg map[string]string
 		if s == "" {
 			<-b.configSet
-			var cfg map[string]string
 			json.Unmarshal(b.config, &cfg)
 			s = cfg["START_AT"]
 		}
@@ -95,7 +135,14 @@ func main() {
 		}
 		start := time.Unix(sec, 0)
 		go b.sample(start)
-		b.schedule(start, os.Getenv("CAPACITY_SCHEDULE"))
+		go b.schedule(start, os.Getenv("CAPACITY_SCHEDULE"))
+		<-online
+		if u := envStr("REGISTER_URL", cfg["REGISTER_URL"]); u != "" {
+			b.mu.Lock()
+			b.pooled = true
+			b.mu.Unlock()
+			go b.register(u)
+		}
 	}()
 
 	mux := http.NewServeMux()
@@ -158,8 +205,25 @@ func main() {
 	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	addr := envStr("LISTEN", ":8080")
+	if after := os.Getenv("ONLINE_AFTER"); after != "" {
+		d, err := time.ParseDuration(after)
+		if err != nil {
+			log.Fatalf("ONLINE_AFTER: %v", err)
+		}
+		<-b.configSet
+		var cfg map[string]string
+		json.Unmarshal(b.config, &cfg)
+		sec, _ := strconv.ParseInt(cfg["START_AT"], 10, 64)
+		time.Sleep(time.Until(time.Unix(sec, 0).Add(d)))
+		b.event("online", 0)
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	close(online)
 	log.Printf("backend: %d workers, %.0f ms, queue %d, listening on %s", b.workers, b.serviceMs, b.queueMax, addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.Serve(ln, mux))
 }
 
 func (b *backend) work(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +235,7 @@ func (b *backend) work(w http.ResponseWriter, r *http.Request) {
 	t := b.tenant(tenant)
 	if b.waiting >= b.queueMax {
 		t.Rejected++
-		b.setHeaders(w)
+		b.setHeaders(w, r)
 		b.mu.Unlock()
 		w.Header().Set("Retry-After", "1")
 		http.Error(w, "busy", http.StatusServiceUnavailable)
@@ -201,26 +265,128 @@ func (b *backend) work(w http.ResponseWriter, r *http.Request) {
 		if b.seen[job] > 1 {
 			t.Duplicates++
 		}
+		b.execs.WriteString(job + "\n")
 	}
 	if r.Context().Err() != nil {
 		t.Orphaned++
 	}
-	b.setHeaders(w)
+	b.setHeaders(w, r)
 	b.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"ok":true,"job":%q,"ms":%d}`, job, d.Milliseconds())
 }
 
-// setHeaders advertises current capacity in Aqueduct's headers. Callers
-// that don't speak Aqueduct (Envoy) ignore them. b.mu must be held.
-func (b *backend) setHeaders(w http.ResponseWriter) {
-	if !b.advertise {
-		return
+// setHeaders advertises capacity in Aqueduct's headers. Callers that don't
+// speak Aqueduct (Envoy) ignore them. A pooled backend reports its capacity
+// by registering instead: a pool shares one queue's pace across members, so
+// one member's header would set the pace for all of them. b.mu must be held.
+func (b *backend) setHeaders(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case b.pooled:
+	case b.advertise == "1":
+		w.Header().Set("X-Aqueduct-Max-Concurrent", strconv.Itoa(b.workers))
+		w.Header().Set("X-Aqueduct-Rps", strconv.FormatFloat(float64(b.workers)*1000/b.serviceMs, 'f', 1, 64))
+	case b.advertise == "live":
+		b.liveHeaders(w.Header(), r.Header.Get("X-Aqueduct-Active-Queues"))
 	}
-	w.Header().Set("X-Aqueduct-Max-Concurrent", strconv.Itoa(b.workers))
-	w.Header().Set("X-Aqueduct-Rps", strconv.FormatFloat(float64(b.workers)*1000/b.serviceMs, 'f', 1, 64))
 }
+
+// liveHeaders is what a service that knows its own load tells each caller.
+//
+// Capacity is workers/service time, scaled down once requests wait: by
+// workers/(busy+waiting), so a line as long as the workers halves it. The
+// caller sends X-Aqueduct-Active-Queues, the number of its queues sharing
+// this service; each queue gets that share of the rate and of the workers,
+// so all of them together send what the service can do, not N times it.
+// X-Aqueduct-Max-Backlog bounds the work the caller holds for this service
+// to BACKLOG_SECONDS of capacity. b.mu must be held.
+func (b *backend) liveHeaders(h http.Header, activeQueues string) {
+	n, err := strconv.Atoi(activeQueues)
+	if err != nil || n < 1 {
+		n = 1
+	}
+	rate := b.capacity()
+	h.Set("X-Aqueduct-Rps", strconv.FormatFloat(rate/float64(n), 'f', 2, 64))
+	h.Set("X-Aqueduct-Max-Concurrent", strconv.Itoa(max(1, (b.workers+n-1)/n)))
+	h.Set("X-Aqueduct-Max-Backlog", strconv.Itoa(int(float64(b.workers)*1000/b.serviceMs*b.backlogS)))
+}
+
+// capacity is the rate the backend can take now, in jobs/s. b.mu must be held.
+func (b *backend) capacity() float64 {
+	rate := float64(b.workers) * 1000 / b.serviceMs
+	if load := b.busy + b.waiting; load > b.workers {
+		rate *= float64(b.workers) / float64(load)
+	}
+	return rate
+}
+
+// register keeps this backend in an Aquifer pool, every 2 s, with its
+// current capacity. Aquifer drops a member that misses three heartbeats, so
+// a suspended machine leaves the pool and rejoins when it resumes.
+func (b *backend) register(url string) {
+	self := fmt.Sprintf("http://%s.vm.%s.internal:8080/work", os.Getenv("FLY_MACHINE_ID"), os.Getenv("FLY_APP_NAME"))
+	id := envStr("FLY_MACHINE_ID", "backend")
+	for range time.Tick(2 * time.Second) {
+		b.mu.Lock()
+		rate := b.capacity()
+		b.mu.Unlock()
+		body, _ := json.Marshal(map[string]any{"member_id": id, "address": self, "capacity_rps": rate, "heartbeat_interval_seconds": 2})
+		if resp, err := control.Post(url, "application/json", bytes.NewReader(body)); err == nil {
+			resp.Body.Close()
+		}
+	}
+}
+
+// watchResume records when the machine comes back from being suspended:
+// a gap in a 100 ms ticker much longer than the tick.
+func (b *backend) watchResume() {
+	last := time.Now()
+	for now := range time.Tick(100 * time.Millisecond) {
+		if gap := now.Sub(last); gap > 2*time.Second {
+			b.event("resumed", gap.Seconds())
+		}
+		last = now
+	}
+}
+
+func (b *backend) event(name string, gapS float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e := map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "event": name, "workers": b.workers}
+	if gapS > 0 {
+		e["gap_s"] = gapS
+	}
+	b.events.Encode(e)
+	log.Printf("event: %s", name)
+}
+
+// fetchConfig polls another backend for the run's settings, for a backend
+// that isn't the one the run publishes them to.
+func (b *backend) fetchConfig(url string) {
+	for {
+		if resp, err := control.Get(url); err == nil {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				b.mu.Lock()
+				first := b.config == nil
+				if first {
+					b.config = raw
+				}
+				b.mu.Unlock()
+				if first {
+					close(b.configSet)
+				}
+				return
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// control carries the run's own traffic, bounded so a stuck peer can't hang it.
+var control = &http.Client{Timeout: 5 * time.Second}
 
 func (b *backend) tenant(name string) *tenantStats {
 	t := b.tenants[name]
@@ -273,9 +439,14 @@ func (b *backend) sample(start time.Time) {
 			delta[name] = tenantStats{t.Executions - p.Executions, t.Duplicates - p.Duplicates, t.Orphaned - p.Orphaned, t.Rejected - p.Rejected}
 			prev[name] = *t
 		}
+		b.execs.Flush()
 		b.mu.Unlock()
 		line["tenants"] = delta
 		enc.Encode(line)
+		summary, _ := json.Marshal(b.summary())
+		b.reportMu.Lock()
+		os.WriteFile(filepath.Join(b.out, "backend-summary.json"), summary, 0o644)
+		b.reportMu.Unlock()
 	}
 }
 

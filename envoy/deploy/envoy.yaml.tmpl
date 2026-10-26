@@ -12,8 +12,11 @@
 #   - circuit breakers with a pending queue, and a retry budget so Envoy's
 #     own retries can't snowball
 #   - Envoy retries a 503 or a reset twice, with backoff
+#   - least-request load balancing across the backend machines, with an
+#     active health check every 2 s, so a machine that comes online takes
+#     traffic within seconds and one that stops answering is dropped
 #
-# run.sh fills in the backend's address, the global rate ceiling and one
+# run.sh fills in the backend machines, the global rate ceiling and one
 # rate-limit descriptor per tenant.
 admin:
   address:
@@ -109,6 +112,13 @@ __DESCRIPTORS__
       dns_lookup_family: V6_ONLY
       connect_timeout: 1s
       lb_policy: LEAST_REQUEST
+      health_checks:
+        - timeout: 1s
+          interval: 2s
+          unhealthy_threshold: 2
+          healthy_threshold: 1
+          no_traffic_interval: 2s
+          http_health_check: { path: /health }
       circuit_breakers:
         thresholds:
           - priority: DEFAULT
@@ -122,6 +132,4 @@ __DESCRIPTORS__
         cluster_name: backend
         endpoints:
           - lb_endpoints:
-              - endpoint:
-                  address:
-                    socket_address: { address: __BACKEND_HOST__, port_value: 8080 }
+__ENDPOINTS__
