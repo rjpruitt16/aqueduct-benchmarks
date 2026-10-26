@@ -27,13 +27,16 @@
 # running chains of four dependent jobs, and retry every refused step until
 # it succeeds (polite tenants with exponential backoff up to 60 s, aggressive
 # ones every 100 ms). The overload is deeper and longer: 3x for 15 minutes,
-# then 2x for 10, with capacity doubling 20 minutes in. Its tenants, by
-# region and retry style (1x = 40 jobs/s):
-#   big          20  REGION  polite
-#   near-polite   5  REGION  polite
-#   near-aggr     5  REGION  aggressive
-#   far-polite    5  lhr     polite
-#   far-aggr      5  lhr     aggressive
+# then 2x for 10, with capacity doubling 20 minutes in. Each tenant runs on
+# its own client machine, so one tenant's retries can't slow another's.
+# Tenants, by region and retry style (1x = 40 jobs/s):
+#   big          16  REGION  polite
+#   near-polite   4  REGION  polite
+#   near-aggr     4  REGION  aggressive
+#   far-polite    4  lhr     polite
+#   far-aggr      4  lhr     aggressive
+#   vfar-polite   4  syd     polite
+#   vfar-aggr     4  syd     aggressive
 #
 # Tenants (jobs/s at 1x load, 1x = 40 jobs/s = the starting capacity):
 #   big      20    in REGION, next to the backend
@@ -105,12 +108,17 @@ for tool in fly jq base64; do
 done
 mkdir -p "$OUT"
 
-# Client regions and the tenants each one plays.
+# Client machines, region:tenants each, and the tenants each one plays.
 CLIENTS="$REGION:big:20 iad:medium:10,small-1:2.5 dfw:small-2:2.5,small-3:2.5 lhr:small-4:2.5"
 if [ "$WORKLOAD" = chains ]; then
-  CLIENTS="$REGION:big:20,near-polite:5,near-aggr:5:aggressive lhr:far-polite:5,far-aggr:5:aggressive"
+  CLIENTS="$REGION:big:16 $REGION:near-polite:4 $REGION:near-aggr:4:aggressive lhr:far-polite:4 lhr:far-aggr:4:aggressive syd:vfar-polite:4 syd:vfar-aggr:4:aggressive"
 fi
 TENANT_RPS=20 # per-tenant limit in Envoy: half the starting capacity
+# A client machine's name: its region and first tenant, e.g. ord-big.
+cname() {
+  t=${1#*:}
+  echo "${1%%:*}-${t%%:*}"
+}
 
 fail() {
   echo "$1" >&2
@@ -189,8 +197,8 @@ done
 echo "== clients"
 for spec in $CLIENTS; do
   region=${spec%%:*}
-  run_machine "client-$region" "$IMAGE" -r "$region" --vm-size shared-cpu-2x --vm-memory 1024 \
-    --restart no --detach -e ROLE=client -e NAME="$region" -e TENANTS="${spec#*:}" \
+  run_machine "client-$(cname "$spec")" "$IMAGE" -r "$region" --vm-size shared-cpu-2x --vm-memory 1024 \
+    --restart no --detach -e ROLE=client -e NAME="$(cname "$spec")" -e TENANTS="${spec#*:}" \
     -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
 done
 
@@ -246,7 +254,7 @@ else
       printf '  "%s:8080":\n    rps: %s\n    max_concurrent: 32\n' "$BACKEND" "$GLOBAL_RPS"
     fi
     for spec in $CLIENTS; do
-      printf '  "%s:8081":\n    rps: 1000\n    max_concurrent: 64\n' "$(host "client-${spec%%:*}")"
+      printf '  "%s:8081":\n    rps: 1000\n    max_concurrent: 64\n' "$(host "client-$(cname "$spec")")"
     done
   } > "$cfg"
   anonymize "$cfg" > "$OUT/aquifer.yaml"
