@@ -244,7 +244,13 @@ done
 echo "== copying results to $OUT"
 missing=""
 for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log; do
-  fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 || missing="$missing $f"
+  # sftp sometimes fails on a busy machine; retry before giving up.
+  ok=""
+  for try in 1 2 3 4 5; do
+    fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 && { ok=1; break; }
+    rm -f "$OUT/$f"; sleep 10
+  done
+  [ -n "$ok" ] || missing="$missing $f"
 done
 fly ssh console -a "$APP" --machine "$(machine_id driver)" -C "cat /out/DONE" 2>/dev/null | tr -d "\r" > "$OUT/DONE" && [ -s "$OUT/DONE" ] || missing="$missing DONE"
 [ -z "$missing" ] || fail "could not copy:$missing"
