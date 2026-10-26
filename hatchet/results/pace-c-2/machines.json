@@ -1,0 +1,123 @@
+[
+  {
+    "id": "2862642f090dd8",
+    "name": "token",
+    "region": "iad",
+    "image": "ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.110.8@sha256:0f281db7b1c8091c099c0a56aaf4380adb934222918c021dd91e8409e8370a77",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 512
+    }
+  },
+  {
+    "id": "2872d67fe09d18",
+    "name": "seed",
+    "region": "iad",
+    "image": "ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.110.8@sha256:0f281db7b1c8091c099c0a56aaf4380adb934222918c021dd91e8409e8370a77",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 512
+    }
+  },
+  {
+    "id": "8d5439c24479d8",
+    "name": "engine",
+    "region": "iad",
+    "image": "ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.110.8@sha256:2b310b9f1e8ee2c1b732de15edb9487b4e2c2d48e6aee231b1f79139b5a386cb",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 2,
+      "memory_mb": 4096
+    }
+  },
+  {
+    "id": "83d193ea531508",
+    "name": "driver",
+    "region": "iad",
+    "image": "ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:2c9c4ffbeeac7a5c8ec7da53dcc2a7624b94bd15@sha256:32bb5b342782211f6ce0519a87d3cf6ecb41e869ee29a545a7c5ccfa62aaee38",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 2,
+      "memory_mb": 4096
+    }
+  },
+  {
+    "id": "8654507c1732e8",
+    "name": "migrate",
+    "region": "iad",
+    "image": "ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.110.8@sha256:9909c1627c13e9122c2c9b362de42e714cb5c508ef17cca45bf390d15789884e",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 512
+    }
+  },
+  {
+    "id": "d8911676a76648",
+    "name": "worker-3",
+    "region": "iad",
+    "image": "ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:2c9c4ffbeeac7a5c8ec7da53dcc2a7624b94bd15@sha256:32bb5b342782211f6ce0519a87d3cf6ecb41e869ee29a545a7c5ccfa62aaee38",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 1,
+      "memory_mb": 2048
+    }
+  },
+  {
+    "id": "811d650b1d9e58",
+    "name": "api",
+    "region": "iad",
+    "image": "ghcr.io/rjpruitt16/hatchet-aquifer-api:v0.110.8-aqueduct-237971d@sha256:b3ffecc8e65e5c4c7831f82f49e851908c68fa3f8405e6103b438d54257f3783",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 1,
+      "memory_mb": 2048
+    }
+  },
+  {
+    "id": "080341dcd94738",
+    "name": "worker-1",
+    "region": "iad",
+    "image": "ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:2c9c4ffbeeac7a5c8ec7da53dcc2a7624b94bd15@sha256:32bb5b342782211f6ce0519a87d3cf6ecb41e869ee29a545a7c5ccfa62aaee38",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 1,
+      "memory_mb": 2048
+    }
+  },
+  {
+    "id": "83dd32ef149598",
+    "name": "pg",
+    "region": "iad",
+    "image": "docker-hub-mirror.fly.io/library/postgres:16.4@sha256:9a70e4d1c03a5066080292db2dd95ee3965d3651316e21989fa0935afb8ce8ca",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 2,
+      "memory_mb": 4096
+    }
+  },
+  {
+    "id": "890d61b61d0e58",
+    "name": "aquifer",
+    "region": "iad",
+    "image": "ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:2c9c4ffbeeac7a5c8ec7da53dcc2a7624b94bd15@sha256:32bb5b342782211f6ce0519a87d3cf6ecb41e869ee29a545a7c5ccfa62aaee38",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 1,
+      "memory_mb": 2048
+    }
+  },
+  {
+    "id": "8d3247ae231ed8",
+    "name": "worker-2",
+    "region": "iad",
+    "image": "ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:2c9c4ffbeeac7a5c8ec7da53dcc2a7624b94bd15@sha256:32bb5b342782211f6ce0519a87d3cf6ecb41e869ee29a545a7c5ccfa62aaee38",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 1,
+      "memory_mb": 2048
+    }
+  }
+]

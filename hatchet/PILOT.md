@@ -78,6 +78,24 @@ Eight more runs, 2026-10-25/26, same settings and Aquifer `630501d`: two more of
 - **Two runs failed in Hatchet, one of each.** In B-3 Hatchet's API returned `500` for about 8 minutes (396 documents refused, 2,999 never started). In C80-2 Hatchet stopped completing jobs about 30 minutes in while Postgres sat idle, and 43,562 documents were unfinished at the end. The Fly logs were gone by the time the runs were looked at, so the cause is unknown; `run.sh` now saves them. C80-3 completed everything but had a 21 s gap in the small tenants' completions, which shows in its p99.
 - Aquifer refused 0.05–0.35% of documents (the law firm's, after 6 attempts).
 
+## Patch 2: Hatchet tells Aquifer how fast to send
+
+Three runs of C, 2026-10-26, with the fork's pacing on (`hatchet-aquifer-api:v0.110.8-aqueduct-237971d`, `PACING=1`, target depth 1,000) and Aquifer allowed the full calibrated rate (`AQUIFER_RPS=20`). Hatchet counts its waiting concurrency slots once a second and advertises a rate that falls when the count is above 1,000 and rises when it is below 500. Raw data is in `results/pace-c-*`.
+
+| | Pace-1 | Pace-2 | Pace-3 | C at 100%, no pacing (C2) | C80, best runs |
+|---|---|---|---|---|---|
+| Completed (of 96,000) | 95,884 | 95,735 | 95,913 | 95,713 | 95,918–95,924 |
+| Refused by Aquifer | 116 | 265 | 87 | 287 | 76–82 |
+| Law firm p50 / p99 in overload (min) | 24.5 / 36.4 | 25.2 / 38.2 | 23.8 / 35.3 | 31.8 / 49.4 | 24.3–25.9 / 37.4–40.1 |
+| Small tenants p50 / p99 in overload (s) | 2.0 / 3.3 | 2.7 / 4.6 | 1.5 / 2.5 | 4.2 / 51.3 | 1.7 / 3.0–16.6 |
+| Accounting p99 in overload (s) | 3.3 | 4.3 | 2.3 | 33.1 | 2.9–16.9 |
+| Postgres rows read/s, sustained (thousands) | 51 | 52 | 53 | 232 | 57–66 |
+| Largest `v1_concurrency_slot` backlog (rows) | 104 | 1,175 | 76 | 23,811 | 117–426 |
+
+- **Hatchet's signal does the tuning by hand did.** Allowed 100% of the rate, Aquifer slowed itself to what Hatchet could take, and every run matched or beat the best hand-tuned 80% runs: Hatchet's queue stayed at or near the target, Postgres read about a fifth of what it did without pacing, and small tenants' p99 stayed under 5 s.
+- **All three runs agree**, unlike C80 and C90, where one run in three stalled or let the backlog grow. Three runs are not proof that pacing prevents stalls, but none happened.
+- Nobody had to pick a number. The limit came from Hatchet's own queue, so it should follow Hatchet if its database grows; that is the resize experiment in [NEXT.md](NEXT.md).
+
 ## Open questions for the next runs
 
 1. ~~Pace Aquifer below Postgres's limit (for example `AQUIFER_RPS=16`, 80%), so Hatchet's Postgres has headroom.~~ Done; see the speed series above.

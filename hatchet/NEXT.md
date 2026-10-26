@@ -6,6 +6,8 @@ The pilot and speed series showed that Aquifer, paced at or below Hatchet's limi
 
 ## 1. Patch 2: Hatchet reports its load
 
+**Status: done.** Built in the fork (`237971d`) and run three times; see [PILOT.md](PILOT.md#patch-2-hatchet-tells-aquifer-how-fast-to-send). The rate is for the whole tenant, divided by the `X-Aqueduct-Active-Queues` the caller sends. Patch 3 (`503` while Postgres is unreachable) is not built.
+
 **Why.** Stock Hatchet never tells a caller it is overloaded: it accepts the work and slows down. Aquifer then has nothing to adapt to and behaves like a static limit, so it can't follow a database that grows.
 
 **What.** In the fork (`rjpruitt16/hatchet-aquifer`), the REST trigger response carries:
