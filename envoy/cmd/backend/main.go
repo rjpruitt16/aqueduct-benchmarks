@@ -25,6 +25,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,6 +63,7 @@ type backend struct {
 
 	config    []byte
 	configSet chan struct{}
+	reportMu  sync.Mutex
 }
 
 func main() {
@@ -100,15 +102,43 @@ func main() {
 	mux.HandleFunc("POST /work", b.work)
 	mux.HandleFunc("POST /report/{name}", b.report)
 	// The run configuration the clients share, set once every client is up.
+	// It is set once (publishing the same settings again is fine), and its
+	// START_AT must still be ahead, so every client and the capacity
+	// schedule share the same clock.
 	mux.HandleFunc("POST /config", func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		b.mu.Lock()
-		first := b.config == nil
+		same := b.config != nil && bytes.Equal(b.config, raw)
+		b.mu.Unlock()
+		if same { // a retried publish
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		var cfg map[string]string
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			http.Error(w, "config: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if os.Getenv("START_AT") == "" {
+			sec, err := strconv.ParseInt(cfg["START_AT"], 10, 64)
+			if err != nil || !time.Unix(sec, 0).After(time.Now()) {
+				http.Error(w, "config: START_AT must be a Unix time still ahead", http.StatusBadRequest)
+				return
+			}
+		}
+		b.mu.Lock()
+		if b.config != nil {
+			b.mu.Unlock()
+			http.Error(w, "config already set", http.StatusConflict)
+			return
+		}
 		b.config = raw
 		b.mu.Unlock()
-		if first {
-			close(b.configSet)
-		}
+		close(b.configSet)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /config", func(w http.ResponseWriter, _ *http.Request) {
@@ -272,6 +302,8 @@ func (b *backend) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	summary, _ := json.Marshal(b.summary())
+	b.reportMu.Lock()
+	defer b.reportMu.Unlock()
 	os.WriteFile(filepath.Join(b.out, "backend-summary.json"), summary, 0o644)
 	w.WriteHeader(http.StatusNoContent)
 }

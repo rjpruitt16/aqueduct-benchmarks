@@ -30,9 +30,9 @@
 # for Envoy and Aquifer); one shared-cpu-2x client per region.
 set -eu
 
-MODE=${1:?usage: run.sh <envoy|aquifer> <steady|changing> <run-name>}
-REGIME=${2:?usage: run.sh <envoy|aquifer> <steady|changing> <run-name>}
-NAME=${3:?usage: run.sh <envoy|aquifer> <steady|changing> <run-name>}
+MODE=${1:?usage: run.sh <envoy|aquifer> <steady|changing|smoke> <run-name>}
+REGIME=${2:?usage: run.sh <envoy|aquifer> <steady|changing|smoke> <run-name>}
+NAME=${3:?usage: run.sh <envoy|aquifer> <steady|changing|smoke> <run-name>}
 : "${FLY_ORG:?set FLY_ORG}"
 : "${IMAGE:?set IMAGE}"
 ENVOY_IMAGE=${ENVOY_IMAGE:-envoyproxy/envoy:v1.39.3}
@@ -54,7 +54,7 @@ case "$REGIME" in
     PHASES=steady:5m:0.5,spike:5m:3,sustained:10m:1.5,recovery:10m:0.5
     CAPACITY_SCHEDULE=15m:16
     ;;
-  *) echo "regime must be steady or changing" >&2; exit 2 ;;
+  *) echo "regime must be steady, changing or smoke" >&2; exit 2 ;;
 esac
 for tool in fly jq base64; do
   command -v "$tool" >/dev/null || { echo "run.sh needs $tool" >&2; exit 2; }

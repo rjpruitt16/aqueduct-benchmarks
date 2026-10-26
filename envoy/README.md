@@ -39,7 +39,7 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 
 ## Running
 
-The whole series (three rounds; each round runs both front doors in both regimes side by side):
+From `envoy/`, the whole series (three rounds; each round runs both front doors in both regimes side by side):
 
 ```sh
 FLY_ORG=... IMAGE=... deploy/series.sh env

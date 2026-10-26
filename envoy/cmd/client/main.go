@@ -246,27 +246,34 @@ func main() {
 	c.mu.Unlock()
 	if u := os.Getenv("REPORT_URL"); u != "" {
 		u = strings.TrimRight(u, "/") + "/" + name
-		for i := 0; i < 10; i++ {
-			resp, err := http.Post(u, "application/json", bytes.NewReader(raw))
-			if err == nil && resp.StatusCode < 300 {
-				resp.Body.Close()
-				break
-			}
-			if resp != nil {
+		sent := false
+		for i := 0; i < 10 && !sent; i++ {
+			resp, err := control.Post(u, "application/json", bytes.NewReader(raw))
+			if err == nil {
+				sent = resp.StatusCode < 300
 				resp.Body.Close()
 			}
-			time.Sleep(3 * time.Second)
+			if !sent {
+				time.Sleep(3 * time.Second)
+			}
+		}
+		if !sent {
+			log.Printf("%s: could not deliver the report to %s", name, u)
 		}
 	}
 	os.Stdout.Write(raw)
 	log.Printf("%s: done", name)
 }
 
+// control carries the run's own traffic (settings, the report), separate
+// from the measured requests and bounded so a stuck backend can't hang it.
+var control = &http.Client{Timeout: 10 * time.Second}
+
 // loadConfig polls url until it returns the run's settings, then sets them
 // in the environment. Settings already in the environment win.
 func loadConfig(url string) {
 	for {
-		resp, err := http.Get(url)
+		resp, err := control.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			var cfg map[string]string
 			err = json.NewDecoder(resp.Body).Decode(&cfg)
