@@ -18,6 +18,9 @@
 #   KEEP=1          leave the app running after the run, for debugging
 #   AQUIFER_FLUSH_MS  Aquifer's disk flush interval in C (default: Aquifer's 100 ms; 0 = fsync every write)
 #   TENANT_MAX_RUNS concurrent documents per tenant in the workflow (default 50)
+#   PACING=1        C only: the fork's API sends pacing headers (Aqueduct patch 2),
+#                   at most RATE triggers/s, falling above PACING_TARGET_DEPTH
+#                   waiting slots (default 1000); Aquifer's own ceiling stays RATE
 #   ENGINE_DB_CONNS, TRIGGER_SLOTS, BUFFER_SIZE, BUFFER_FLUSH
 #                   tuned engine settings (see TUNING.md); fixed by calibration
 #
@@ -171,8 +174,12 @@ fly machine run ghcr.io/hatchet-dev/hatchet/hatchet-engine:$HATCHET /hatchet/hat
 ENGINE_HOST=$(host engine)
 API_IMAGE=ghcr.io/hatchet-dev/hatchet/hatchet-api:$HATCHET
 API_SIZE="--vm-size performance-1x --vm-memory 2048"
+API_PACING=""
 if [ "$CONFIG" = C ]; then
   API_IMAGE=$FORK_API_IMAGE
+  if [ "${PACING:-}" = 1 ]; then
+    API_PACING="-e AQUEDUCT_PACING_ENABLED=true -e AQUEDUCT_MAX_RPS=${RATE:-50} -e AQUEDUCT_TARGET_DEPTH=${PACING_TARGET_DEPTH:-1000}"
+  fi
 else
   # B gets Aquifer's machine budget back on the API.
   API_SIZE="--vm-size performance-2x --vm-memory 4096"
@@ -180,7 +187,7 @@ fi
 # shellcheck disable=SC2086
 fly machine run "$API_IMAGE" /hatchet/hatchet-api -a "$APP" -n api -r "$REGION" $API_SIZE --restart on-failure --detach \
   $HATCHET_ENV -e SERVER_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" \
-  -e SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" >/dev/null
+  -e SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" $API_PACING >/dev/null
 sleep 20
 API="http://$(host api):8080"
 
@@ -279,6 +286,7 @@ fly machine list -a "$APP" --json \
   echo "drain_max=${DRAIN_MAX:-30m}"
   [ "$CONFIG" = C ] && echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
+  [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000}"
 } > "$OUT/run.txt"
 status=$(cat "$OUT/DONE")
 [ "$status" = 0 ] || fail "driver exited with status $status; see $OUT/driver.log"
