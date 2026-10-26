@@ -1,0 +1,87 @@
+# Envoy at the edge in front of Aquifer: the way a team would put Aquifer
+# behind the gateway it already runs. Envoy keeps the job it is good at
+# there, a per-tenant rate limit against abuse (twice the share each tenant
+# gets at the backend), and forwards submissions to Aquifer, which queues,
+# keeps tenants fair and paces the backend. No adaptive concurrency or
+# admission control here: Aquifer answers a submission at once, so its
+# latency says nothing about the backend's load.
+#
+# run.sh fills in Aquifer's address, the global rate ceiling and one
+# rate-limit descriptor per tenant.
+admin:
+  address:
+    socket_address: { address: "::", port_value: 9901, ipv4_compat: true }
+
+static_resources:
+  listeners:
+    - name: ingress
+      address:
+        socket_address: { address: "::", port_value: 8080, ipv4_compat: true }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: edge
+                route_config:
+                  name: aquifer
+                  virtual_hosts:
+                    - name: aquifer
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route:
+                            cluster: aquifer
+                            timeout: 10s
+                            retry_policy:
+                              retry_on: "connect-failure,reset"
+                              num_retries: 2
+                            rate_limits:
+                              - actions:
+                                  - request_headers: { header_name: x-tenant, descriptor_key: tenant }
+                          typed_per_filter_config:
+                            envoy.filters.http.local_ratelimit:
+                              "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                              stat_prefix: tenant_rate_limit
+                              token_bucket: { max_tokens: 200, tokens_per_fill: 200, fill_interval: 1s }
+                              filter_enabled:
+                                runtime_key: tenant_rate_limit_enabled
+                                default_value: { numerator: 100, denominator: HUNDRED }
+                              filter_enforced:
+                                runtime_key: tenant_rate_limit_enforced
+                                default_value: { numerator: 100, denominator: HUNDRED }
+                              response_headers_to_add:
+                                - append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                                  header: { key: retry-after, value: "1" }
+                              descriptors:
+                                - entries: [{ key: tenant, value: big }]
+                                  token_bucket: { max_tokens: 80, tokens_per_fill: 40, fill_interval: 1s }
+                                - entries: [{ key: tenant, value: medium }]
+                                  token_bucket: { max_tokens: 80, tokens_per_fill: 40, fill_interval: 1s }
+                                - entries: [{ key: tenant, value: small-1 }]
+                                  token_bucket: { max_tokens: 80, tokens_per_fill: 40, fill_interval: 1s }
+                                - entries: [{ key: tenant, value: small-2 }]
+                                  token_bucket: { max_tokens: 80, tokens_per_fill: 40, fill_interval: 1s }
+                                - entries: [{ key: tenant, value: small-3 }]
+                                  token_bucket: { max_tokens: 80, tokens_per_fill: 40, fill_interval: 1s }
+                                - entries: [{ key: tenant, value: small-4 }]
+                                  token_bucket: { max_tokens: 80, tokens_per_fill: 40, fill_interval: 1s }
+                http_filters:
+                  - name: envoy.filters.http.local_ratelimit
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                      stat_prefix: tenant_rate_limit
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+    - name: aquifer
+      type: STRICT_DNS
+      dns_lookup_family: V6_ONLY
+      connect_timeout: 1s
+      load_assignment:
+        cluster_name: aquifer
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: <machine>, port_value: 8080 } } }
