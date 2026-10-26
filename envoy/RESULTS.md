@@ -39,13 +39,14 @@ Backend throughput, jobs/s (the same in every run of a front door):
 
 **Envoy wins this regime clearly.** It completed 16% more jobs, its tail latency was seconds rather than 20 minutes, and it answered more than three times as many deadline jobs in time. Its cost is retries: each completed job took about 5.8 requests. In Envoy-2, 225,807 were refused by the per-tenant rate limit and 27,487 by adaptive concurrency. Admission control refused nothing once adaptive concurrency answered `429`.
 
-**Aquifer lost because it overloaded the backend itself.** The backend advertises its capacity in `X-Aqueduct-Max-Concurrent` (8, then 16), and Aquifer applies that limit to each tenant's queue, not to the backend as a whole. With six tenants it kept 48 requests in flight against 8 workers (then 96 against 16). The backend thrashed at its 3× slowdown, and after the scale-up it also refused with `503` about 60 times a second. The RPS ceiling is split across queues (`checkAndThrottle`); the concurrency limit is not (`internal/dispatch/account_queue.go`). This is an Aquifer gap, not a tuning choice in the harness, and it explains the whole result: throughput, latency and missed deadlines.
+**Aquifer lost because the backend in this series spoke Aqueduct badly, so Aquifer overloaded it.** The backend sent the same headers on every response, idle or drowning: `X-Aqueduct-Max-Concurrent` 8 (then 16) and `X-Aqueduct-Rps` 40 (then 80), its whole capacity. Aquifer applies those values per queue and tells the service how many of its queues share it (`X-Aqueduct-Active-Queues` on every request), so a service is meant to send each queue its share: the convention Aquifer itself follows when it paces its own callers. With six tenant queues each taking the whole number, Aquifer kept 48 requests in flight against 8 workers (then 96 against 16). The backend thrashed at its 3× slowdown, and after the scale-up it also refused with `503` about 60 times a second. That explains the whole result: throughput, latency and missed deadlines. It was a harness choice, not a measure of Aquifer with a backend that reports its load: Envoy got its adaptive filter, Aquifer got a fixed number. The series below re-runs Aquifer against a backend that sends its live, per-caller capacity.
 
 **Fairness held for both.** Each front door protected the small tenants from the big one: Envoy through per-tenant token buckets, Aquifer through per-tenant queues and fair admission. Aquifer completed a slightly larger share of the small tenants' work; Envoy completed it much sooner.
 
 **No duplicated work either way.** Envoy left 59–77 jobs running after the client gave up (the 10 s timeout), work the backend did for nobody. Aquifer left none.
 
-## What this does not show yet
+## What this does not show
 
-- How Aquifer does with the concurrency limit applied per backend. That needs a change in Aquifer, proposed for review; then the changing regime runs again.
+- Aquifer against a backend that reports its load. The `env2` series below does.
 - Envoy's throughput after the scale-up was capped by its own per-tenant limits (20/s each), not by the backend. A team would raise those limits on scaling; Envoy has no signal to do it on its own.
+- Capacity coming from new machines. Here one machine got more workers at the same address, which needs no discovery from either front door. The `env2` series adds machines.

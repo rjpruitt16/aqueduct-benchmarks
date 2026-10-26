@@ -6,10 +6,11 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 
 ## Setup
 
-- **Backend:** a synthetic service ([cmd/backend](cmd/backend/main.go)) with a fixed number of workers (8 at 200 ms: 40 jobs/s). Requests wait for a worker; past 64 waiting it answers `503` with `Retry-After: 1`. When the line is longer than the number of workers, work slows down (up to 3×). Work that has started always finishes, even after the caller gives up, and every execution is counted by job ID, so duplicated work is exact. It advertises its capacity in Aqueduct's headers (`X-Aqueduct-Rps`, `X-Aqueduct-Max-Concurrent`); Envoy ignores them.
+- **Backend:** a synthetic service ([cmd/backend](cmd/backend/main.go)) with a fixed number of workers (8 at 200 ms: 40 jobs/s). Requests wait for a worker; past 64 waiting it answers `503` with `Retry-After: 1`. When the line is longer than the number of workers, work slows down (up to 3×). Work that has started always finishes, even after the caller gives up, and every execution is counted by job ID, so duplicated work is exact, also across machines. It reports its load in Aqueduct's headers, which Envoy ignores (see [Live headers](#live-headers)).
 - **Envoy** ([envoy.yaml.tmpl](deploy/envoy.yaml.tmpl)), tuned as a careful team would: per-tenant local rate limits with `Retry-After`, admission control, adaptive concurrency, circuit breakers with a pending queue, and a retry budget on Envoy's own retries.
 - **Envoy tuning notes.** Two settings matter for a fair result. Adaptive concurrency holds its limit at `min_concurrency` while it re-measures the backend's best latency, so that is set to the concurrency normal traffic needs (8); at 4 it blocked ordinary bursts. And it refuses with `429` instead of its default `503`, because admission control counts every `5xx` it sees as a backend failure and otherwise rejected more traffic in response to adaptive concurrency's own refusals. Both were found in trial runs (`results/env-smoke-*`).
-- **Aquifer** with its defaults; per-tenant queues and fair admission are on by default.
+- **Aquifer** with its defaults; per-tenant queues and fair admission are on by default. In the scale-out regime jobs go to an Aquifer pool that the backend machines register in.
+- **Envoy in front of Aquifer** (`both`): Envoy at the edge with per-tenant rate limits at twice the backend share, as a guard against abuse, forwarding submissions to Aquifer ([envoy-edge.yaml.tmpl](deploy/envoy-edge.yaml.tmpl)). This is how a team that already runs Envoy would add Aquifer.
 - **Same ceilings for both:** 80 requests/s and 32–64 in flight, twice the starting capacity, so the scale-up below is usable by both.
 - **Clients** ([cmd/client](cmd/client/main.go)) in four regions retry like a good SDK: up to 6 attempts, exponential backoff with full jitter, never sooner than `Retry-After`. Against Envoy that applies to every job; against Aquifer only to a refused submission. 10% of jobs carry a 2 s deadline.
 
@@ -28,6 +29,22 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 - **steady:** 20 minutes at 0.5×. The backend has twice the capacity it needs, the case where Envoy should do best.
 - **changing:** 5 min at 0.5×, a 5 min spike at 3×, 10 min at 1.5×, 10 min at 0.5×. Capacity doubles to 16 workers 15 minutes in, while still overloaded, like an autoscaler catching up late.
 
+## Live headers
+
+From the `env2` series on, every backend reports its load the way Aquifer expects a service to. Aquifer sends `X-Aqueduct-Active-Queues` on each request, the number of its queues sharing this service, and the backend answers with each queue's share:
+
+- `X-Aqueduct-Rps`: capacity (workers ÷ service time) ÷ active queues, scaled down by workers ÷ (busy + waiting) once requests wait, so a line as long as the workers halves it.
+- `X-Aqueduct-Max-Concurrent`: workers ÷ active queues, rounded up.
+- `X-Aqueduct-Max-Backlog`: 60 seconds of capacity, the most work Aquifer should hold for it.
+
+In a pool, members report capacity by registering instead (every 2 s, with the same live capacity), since a pool's queues share one pace across members.
+
+The first series (`env`) sent the full, fixed capacity on every response; see [RESULTS.md](RESULTS.md) for what that did.
+
+## Scale-out regime
+
+The changing regime's load, but the capacity comes from new machines: one backend machine (8 workers) at the start, and two more 15 minutes in, one as big (8 workers) and one half the size (4). They run from the start but stay off the network until that moment, so it is exact and the same for every front door, without Fly's machine start times in the result. Envoy lists all three machines and finds the new ones through its health checks (every 2 s); Aquifer gets them when they register in its pool. Both ceilings are 100 requests/s, the capacity after the scale-out. Each machine records when it came online and every job it ran.
+
 ## What is measured
 
 | Claim | Measure |
@@ -39,10 +56,11 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 
 ## Running
 
-From `envoy/`, the whole series (three rounds; each round runs both front doors in both regimes side by side):
+From `envoy/`, a whole series (three rounds; each round runs its runs side by side):
 
 ```sh
 FLY_ORG=... IMAGE=... deploy/series.sh env
+FLY_ORG=... IMAGE=... RUNS="aquifer:changing envoy:scaleout aquifer:scaleout both:scaleout" deploy/series.sh env2
 ```
 
 One run:
