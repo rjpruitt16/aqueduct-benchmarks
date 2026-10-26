@@ -2,9 +2,13 @@
 #
 #   - per-tenant local rate limits (no tenant above TENANT_RPS), with
 #     Retry-After on the 429 so clients know when to come back
-#   - admission control: reject early when the success rate drops
 #   - adaptive concurrency: learn the backend's latency and cap requests
-#     in flight to what keeps it near its best
+#     in flight to what keeps it near its best. While it re-measures the
+#     best-case latency it holds the limit at min_concurrency, so that is
+#     set to the concurrency normal traffic needs (8), not below it.
+#   - admission control: reject early when the backend's success rate
+#     drops. It sits after adaptive concurrency so it judges only the
+#     backend's answers, not adaptive concurrency's own 503s.
 #   - circuit breakers with a pending queue, and a retry budget so Envoy's
 #     own retries can't snowball
 #   - Envoy retries a 503 or a reset twice, with backoff
@@ -65,6 +69,21 @@ __DESCRIPTORS__
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
                       stat_prefix: tenant_rate_limit
+                  - name: envoy.filters.http.adaptive_concurrency
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.adaptive_concurrency.v3.AdaptiveConcurrency
+                      gradient_controller_config:
+                        sample_aggregate_percentile: { value: 90 }
+                        concurrency_limit_params:
+                          max_concurrency_limit: 64
+                          concurrency_update_interval: 0.1s
+                        min_rtt_calc_params:
+                          interval: 60s
+                          request_count: 50
+                          jitter: { value: 10 }
+                          buffer: { value: 25 }
+                          min_concurrency: 8
+                      enabled: { default_value: true, runtime_key: adaptive_concurrency.enabled }
                   - name: envoy.filters.http.admission_control
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.admission_control.v3.AdmissionControl
@@ -77,21 +96,6 @@ __DESCRIPTORS__
                       success_criteria:
                         http_criteria:
                           http_success_status: [{ start: 100, end: 500 }]
-                  - name: envoy.filters.http.adaptive_concurrency
-                    typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.adaptive_concurrency.v3.AdaptiveConcurrency
-                      gradient_controller_config:
-                        sample_aggregate_percentile: { value: 90 }
-                        concurrency_limit_params:
-                          max_concurrency_limit: 64
-                          concurrency_update_interval: 0.1s
-                        min_rtt_calc_params:
-                          interval: 30s
-                          request_count: 50
-                          jitter: { value: 10 }
-                          buffer: { value: 25 }
-                          min_concurrency: 4
-                      enabled: { default_value: true, runtime_key: adaptive_concurrency.enabled }
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

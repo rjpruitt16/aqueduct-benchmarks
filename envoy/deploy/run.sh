@@ -96,6 +96,19 @@ retry() {
   return 1
 }
 
+# Creates a machine, retrying when the API times out. A timed-out call may
+# still have created it, so check by name before trying again.
+run_machine() {
+  name=$1
+  shift
+  for try in 1 2 3 4; do
+    [ -n "$(machine_id "$name")" ] && return 0
+    fly machine run "$@" -a "$APP" -n "$name" >/dev/null && return 0
+    sleep 10
+  done
+  return 1
+}
+
 machine_id() { fly machine list -a "$APP" --json | jq -r --arg n "$1" '.[] | select(.name == $n) | .id'; }
 host() { echo "$(machine_id "$1").vm.$APP.internal"; }
 # Runs a command on a machine and prints its output.
@@ -110,7 +123,7 @@ fly apps create "$APP" -o "$FLY_ORG" >/dev/null
 trap cleanup EXIT
 
 echo "== backend"
-fly machine run "$IMAGE" -a "$APP" -n backend -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
+run_machine backend "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
   --restart on-failure --detach -e ROLE=backend -e WORKERS=8 -e SERVICE_MS=200 -e QUEUE_MAX=64 \
   -e ADVERTISE=1 -e CAPACITY_SCHEDULE="$CAPACITY_SCHEDULE" >/dev/null
 BACKEND=$(host backend)
@@ -121,7 +134,7 @@ BACKEND=$(host backend)
 echo "== clients"
 for spec in $CLIENTS; do
   region=${spec%%:*}
-  fly machine run "$IMAGE" -a "$APP" -n "client-$region" -r "$region" --vm-size shared-cpu-2x --vm-memory 1024 \
+  run_machine "client-$region" "$IMAGE" -r "$region" --vm-size shared-cpu-2x --vm-memory 1024 \
     --restart no --detach -e ROLE=client -e NAME="$region" -e TENANTS="${spec#*:}" \
     -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
 done
@@ -143,7 +156,7 @@ if [ "$MODE" = envoy ]; then
 d;}" "$HERE/envoy.yaml.tmpl" > "$cfg"
   rm -f "$cfg.d"
   cp "$cfg" "$OUT/envoy.yaml"
-  fly machine run "$ENVOY_IMAGE" -a "$APP" -n front -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
+  run_machine front "$ENVOY_IMAGE" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-failure --detach --file-local /etc/envoy/envoy.yaml="$cfg" >/dev/null
   FRONT="http://$(host front):8080"
 else
@@ -156,7 +169,7 @@ else
     done
   } > "$cfg"
   sed "s/[0-9a-f]*\.vm\.$APP\.internal/<machine>/" "$cfg" > "$OUT/aquifer.yaml"
-  fly machine run "$IMAGE" -a "$APP" -n front -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
+  run_machine front "$IMAGE" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-failure --detach --file-local /etc/aquifer.yaml="$cfg" \
     -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/tmp/aquifer -e CONFIG_PATH=/etc/aquifer.yaml >/dev/null
   FRONT="http://$(host front):8080"
