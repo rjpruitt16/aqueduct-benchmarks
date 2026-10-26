@@ -7,7 +7,8 @@
 //	         submission, the same way) and wait for Aquifer's webhook.
 //
 // Every request the client sends is counted. A share of jobs carries a
-// deadline; those count as missed if the answer arrives too late.
+// 2 s target; those count as late if the answer arrives after it. The job
+// still runs to its normal end either way (unless ENFORCE_DEADLINE=1).
 //
 // Configuration (environment):
 //
@@ -24,6 +25,9 @@
 //	DRAIN           how long to wait for outstanding work (default 10m)
 //	DEADLINE_SHARE  fraction of jobs with a deadline (default 0.1)
 //	DEADLINE        that deadline (default 2s)
+//	ENFORCE_DEADLINE  1 to give up on a job at its deadline (Aquifer's
+//	                execute_before; no Envoy retry past it). Off by default:
+//	                the deadline is only measured. The env series ran with it on.
 //	MAX_ATTEMPTS    attempts per job, or per submission (default 6)
 //	BACKOFF_BASE    first backoff (default 200ms)
 //	BACKOFF_MAX     backoff cap (default 20s)
@@ -99,6 +103,7 @@ type tally struct {
 
 type client struct {
 	mode, target, backendURL, publicURL string
+	enforce                             bool
 	pool                                string
 	maxAttempts                         int
 	base, cap, timeout                  time.Duration
@@ -125,6 +130,7 @@ func main() {
 		target:      strings.TrimRight(os.Getenv("TARGET"), "/"),
 		backendURL:  os.Getenv("BACKEND_URL"),
 		pool:        os.Getenv("POOL"),
+		enforce:     os.Getenv("ENFORCE_DEADLINE") == "1",
 		publicURL:   strings.TrimRight(os.Getenv("PUBLIC_URL"), "/"),
 		maxAttempts: envInt("MAX_ATTEMPTS", 6),
 		base:        envDur("BACKOFF_BASE", 200*time.Millisecond),
@@ -331,7 +337,7 @@ func (c *client) run(j *job) {
 func (c *client) viaEnvoy(j *job) result {
 	for attempt := 1; ; attempt++ {
 		timeout := c.timeout
-		if !j.deadline.IsZero() {
+		if c.enforce && !j.deadline.IsZero() {
 			timeout = min(timeout, time.Until(j.deadline))
 			if timeout <= 0 {
 				return result{why: "deadline"}
@@ -376,7 +382,7 @@ func (c *client) viaAquifer(j *job) result {
 		delete(body, "url")
 		body["pool_id"] = c.pool
 	}
-	if !j.deadline.IsZero() {
+	if c.enforce && !j.deadline.IsZero() {
 		body["execute_before"] = j.deadline.UnixMilli()
 	}
 	c.mu.Lock()
@@ -502,12 +508,12 @@ func (c *client) submit(body map[string]any) (int, time.Duration, string, error)
 }
 
 // backoff sleeps before the next attempt: full jitter on an exponential
-// window, but never less than Retry-After. It returns false when the job's
-// deadline would pass first.
+// window, but never less than Retry-After. With ENFORCE_DEADLINE it returns
+// false when the job's deadline would pass first.
 func (c *client) backoff(j *job, attempt int, retryAfter time.Duration) bool {
 	window := min(c.cap, time.Duration(float64(c.base)*math.Pow(2, float64(attempt-1))))
 	d := max(time.Duration(rand.Float64()*float64(window)), retryAfter)
-	if !j.deadline.IsZero() && time.Now().Add(d).After(j.deadline) {
+	if c.enforce && !j.deadline.IsZero() && time.Now().Add(d).After(j.deadline) {
 		return false
 	}
 	time.Sleep(d)
