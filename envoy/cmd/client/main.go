@@ -201,6 +201,10 @@ func main() {
 	if c.mode == "both" {
 		c.mode = "aquifer"
 	}
+	// The do-it-yourself setups only change the bottom services (wild).
+	if c.mode == "envoy-idem" || c.mode == "envoy-queue" {
+		c.mode = "envoy"
+	}
 	if c.mode != "envoy" && c.mode != "aquifer" {
 		log.Fatalf("MODE must be envoy or aquifer, got %q", c.mode)
 	}

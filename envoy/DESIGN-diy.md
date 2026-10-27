@@ -1,6 +1,6 @@
 # Design: Envoy plus what a team would build itself
 
-Status: draft, for sign-off. Nothing is built or run yet.
+Status: signed off and built.
 
 ## Why
 
@@ -77,12 +77,10 @@ Everything the wild regime measures, plus:
 | Step | Estimate |
 |---|---|
 | Smoke runs (two new setups) | about $0.50 |
-| Series: 3 rounds × 4 setups side by side, about 45 minutes each | about $9–12 |
+| Series: 3 rounds of the two new setups, plus one round of `envoy` and `aquifer` as a check | about $7–9 |
 
-Running all four together each round keeps the comparison on the same Fly hosts at the same time, as every earlier series did. Running only the two new setups and comparing with the wild results would cost about $5–7, but on a different day.
+## Decided
 
-## To decide
-
-1. All four setups side by side (recommended), or only the two new ones.
-2. Whether `envoy-idem` waiters wait for the running copy (as above), or get a 409 and retry, as Stripe-style APIs answer a concurrent repeat. Waiting is the kinder choice to the setup and the one proposed.
-3. One dispatcher machine, or two sharing the queue, as a team running for availability would. One is proposed; two adds coordination this test doesn't need.
+1. **Runs.** The two new setups run for three rounds. Round 1 also runs `envoy` and `aquifer` side by side with them, as a check against the wild series. If the check matches wild, the new setups are compared with all of wild's rounds; if it doesn't, that is reported first. The wild rounds agreed closely (Aquifer 46,200–46,300 completed, Envoy 20,500–22,200), so day-to-day noise is far smaller than the differences being measured.
+2. **A repeat of a running job in `envoy-idem` waits** for the running copy's result, rather than getting a 409 and retrying.
+3. **One dispatcher.**
