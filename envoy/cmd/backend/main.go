@@ -17,6 +17,11 @@
 //	SERVICE_MS         base service time (default 200)
 //	QUEUE_MAX          waiting requests before 503 (default 64)
 //	CAPACITY_SCHEDULE  capacity changes after START_AT, e.g. "20m:16"
+//	OUTAGE             an outage after START_AT, e.g. "20m:60s" (or OUTAGE in
+//	                   the run configuration): for that long every POST /work
+//	                   is refused straight away with a 503, while health
+//	                   checks still pass, as when a dependency behind the
+//	                   service is down
 //	ADVERTISE          how to speak Aqueduct's headers (Envoy ignores them):
 //	                   "" none; "1" the fixed capacity on every response;
 //	                   "live" the current spare capacity, split across the
@@ -73,6 +78,7 @@ type backend struct {
 	advertise string
 	backlogS  float64
 	pooled    bool
+	down      bool
 
 	seen    map[string]int
 	tenants map[string]*tenantStats
@@ -136,6 +142,7 @@ func main() {
 		start := time.Unix(sec, 0)
 		go b.sample(start)
 		go b.schedule(start, os.Getenv("CAPACITY_SCHEDULE"))
+		go b.outage(start, envStr("OUTAGE", cfg["OUTAGE"]))
 		<-online
 		if u := envStr("REGISTER_URL", cfg["REGISTER_URL"]); u != "" {
 			b.mu.Lock()
@@ -233,7 +240,7 @@ func (b *backend) work(w http.ResponseWriter, r *http.Request) {
 
 	b.mu.Lock()
 	t := b.tenant(tenant)
-	if b.waiting >= b.queueMax {
+	if b.waiting >= b.queueMax || b.down {
 		t.Rejected++
 		b.setHeaders(w, r)
 		b.mu.Unlock()
@@ -419,6 +426,30 @@ func (b *backend) schedule(start time.Time, spec string) {
 	}
 }
 
+// outage takes the backend down for a while, e.g. "20m:60s" after start.
+func (b *backend) outage(start time.Time, spec string) {
+	at, length, ok := strings.Cut(strings.TrimSpace(spec), ":")
+	if !ok {
+		return
+	}
+	after, err1 := time.ParseDuration(at)
+	d, err2 := time.ParseDuration(length)
+	if err1 != nil || err2 != nil {
+		log.Printf("ignoring outage %q", spec)
+		return
+	}
+	time.Sleep(time.Until(start.Add(after)))
+	b.mu.Lock()
+	b.down = true
+	b.mu.Unlock()
+	b.event("outage", 0)
+	time.Sleep(d)
+	b.mu.Lock()
+	b.down = false
+	b.mu.Unlock()
+	b.event("recovered", 0)
+}
+
 // sample writes one line every 10 s: capacity, line length, and work done.
 func (b *backend) sample(start time.Time) {
 	f, err := os.Create(filepath.Join(b.out, "backend.jsonl"))
@@ -431,7 +462,7 @@ func (b *backend) sample(start time.Time) {
 		b.mu.Lock()
 		line := map[string]any{
 			"at": time.Now().UTC().Format(time.RFC3339), "t": int(time.Since(start).Seconds()),
-			"workers": b.workers, "busy": b.busy, "waiting": b.waiting,
+			"workers": b.workers, "busy": b.busy, "waiting": b.waiting, "down": b.down,
 		}
 		delta := map[string]tenantStats{}
 		for name, t := range b.tenants {
