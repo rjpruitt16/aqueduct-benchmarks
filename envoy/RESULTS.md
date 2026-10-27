@@ -184,7 +184,7 @@ Limits of this comparison:
 - **One dispatcher, one Redis, no failures.** The queue has no redundancy, and the runs did not test a Redis or dispatcher restart. Aquifer's own durability and failover were not tested here either.
 - **The same synthetic backend and 5 s timeout** as wild, with the same caveats.
 
-**What this says, simply.** Most of Aquifer's advantage in the wild regime is something a team can build: idempotency keys stop the repeated work, and a fair queue that follows the backend's limit stops the storm. Built that way, Envoy plus Redis plus a dispatcher matched Aquifer here and was slightly faster before the outage. The difference is what the team owns: two more machines and about 500 lines of code whose failure cases were never exercised, against one service that does the same thing out of the box.
+**What this says, simply.** Most of Aquifer's advantage in the wild regime is something a team can build: idempotency keys stop the repeated work, and a fair queue that follows the backend's limit stops the storm. Built that way, Envoy plus Redis plus a dispatcher matched Aquifer here and was slightly faster before the outage. The difference is what the team owns: two more machines and about 500 lines of code, against one service that does the same thing out of the box. Neither side's failure handling was tested here: no Redis, dispatcher or Aquifer restart happened in any run, so which one holds up better when something breaks is still open.
 
 ## What we can say
 
