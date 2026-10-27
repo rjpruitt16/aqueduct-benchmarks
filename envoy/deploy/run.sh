@@ -17,6 +17,10 @@
 #   ENVOY_IMAGE    default envoyproxy/envoy:v1.39.3
 #   REGION         region of the backend and front door (default ord)
 #   KEEP=1         leave the app running after the run, for debugging
+#   AQUIFER_REF    the Aquifer release or commit built into IMAGE, recorded
+#                  in run.txt
+#   ADVERTISE      the backends' header mode, live (default; split by the
+#                  caller's active queues) or total (Aquifer 0.16 and later)
 #
 # Capacity: the backend starts with 8 workers at 200 ms (40 jobs/s). In the
 # changing regime it doubles to 16 workers 15 minutes in, while overloaded,
@@ -218,7 +222,7 @@ trap cleanup EXIT
 echo "== backend"
 run_machine backend "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
   --restart on-failure --detach -e ROLE=backend -e WORKERS=8 -e SERVICE_MS=200 -e QUEUE_MAX=64 \
-  -e ADVERTISE=live -e CAPACITY_SCHEDULE="$CAPACITY_SCHEDULE" >/dev/null
+  -e ADVERTISE="${ADVERTISE:-live}" -e CAPACITY_SCHEDULE="$CAPACITY_SCHEDULE" >/dev/null
 BACKEND=$(host backend)
 BACKENDS=$BACKEND
 # Machines that join mid-run: running from the start, but off the network
@@ -226,7 +230,7 @@ BACKENDS=$BACKEND
 for spec in $EXTRA_BACKENDS; do
   run_machine "${spec%%:*}" "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
     --restart on-failure --detach -e ROLE=backend -e WORKERS="${spec#*:}" -e SERVICE_MS=200 -e QUEUE_MAX=64 \
-    -e ADVERTISE=live -e ONLINE_AFTER="$ONLINE_AFTER" -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
+    -e ADVERTISE="${ADVERTISE:-live}" -e ONLINE_AFTER="$ONLINE_AFTER" -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
   BACKENDS="$BACKENDS $(host "${spec%%:*}")"
 done
 
@@ -454,5 +458,7 @@ fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config
   echo "capacity_schedule=$CAPACITY_SCHEDULE"
   echo "extra_backends=$EXTRA_BACKENDS"
   echo "global_rps=$GLOBAL_RPS"
+  echo "advertise=${ADVERTISE:-live}"
+  [ -n "${AQUIFER_REF:-}" ] && echo "aquifer_ref=$AQUIFER_REF"
 } > "$OUT/run.txt"
 echo "== done: $OUT"

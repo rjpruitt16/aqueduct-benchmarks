@@ -25,7 +25,9 @@
 //	ADVERTISE          how to speak Aqueduct's headers (Envoy ignores them):
 //	                   "" none; "1" the fixed capacity on every response;
 //	                   "live" the current spare capacity, split across the
-//	                   caller's X-Aqueduct-Active-Queues (see liveHeaders)
+//	                   caller's X-Aqueduct-Active-Queues (see liveHeaders);
+//	                   "total" the same capacity, not split: Aquifer 0.16
+//	                   and later share the totals across their queues
 //	BACKLOG_SECONDS    with ADVERTISE=live, X-Aqueduct-Max-Backlog is this
 //	                   many seconds of capacity (default 60)
 //	REGISTER_URL       an Aquifer pool's members URL (or REGISTER_URL in the
@@ -296,6 +298,8 @@ func (b *backend) setHeaders(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Aqueduct-Rps", strconv.FormatFloat(float64(b.workers)*1000/b.serviceMs, 'f', 1, 64))
 	case b.advertise == "live":
 		b.liveHeaders(w.Header(), r.Header.Get("X-Aqueduct-Active-Queues"))
+	case b.advertise == "total":
+		b.liveHeaders(w.Header(), "1")
 	}
 }
 
