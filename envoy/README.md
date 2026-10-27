@@ -29,6 +29,17 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 - **steady:** 20 minutes at 0.5×. The backend has twice the capacity it needs, the case where Envoy should do best.
 - **changing:** 5 min at 0.5×, a 5 min spike at 3×, 10 min at 1.5×, 10 min at 0.5×. Capacity doubles to 16 workers 15 minutes in, while still overloaded, like an autoscaler catching up late.
 
+- **chains:** a different workload, where no job is given up. Each tenant works in lanes; a lane runs a chain of four dependent jobs (A, then B and C in parallel, then D), and a refused step is retried until it succeeds, holding up the rest of the chain. A lane starts a new chain every 4 s, or as soon as the last one ends if it took longer. 5 min at 0.5×, 15 min at 3×, 10 min at 2×, 10 min at 0.5×; capacity doubles 20 minutes in. One client machine per tenant:
+
+  | Tenant | Region | Retries | Jobs/s at 1× |
+  |---|---|---|---|
+  | big | `ord` | polite | 16 |
+  | near-polite, near-aggr | `ord` | polite, aggressive | 4 each |
+  | far-polite, far-aggr | `lhr` | polite, aggressive | 4 each |
+  | vfar-polite, vfar-aggr | `syd` | polite, aggressive | 4 each |
+
+  Polite tenants back off exponentially with full jitter (200 ms, doubling up to 60 s) and honor `Retry-After`. Aggressive tenants retry every 100 ms and ignore it. Under Aquifer a job is submitted once and Aquifer holds it until it runs.
+
 ## Live headers
 
 From the `env2` series on, every backend reports its load the way Aquifer expects a service to. Aquifer sends `X-Aqueduct-Active-Queues` on each request, the number of its queues sharing this service, and the backend answers with each queue's share:
