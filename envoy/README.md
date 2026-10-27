@@ -41,6 +41,7 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
   Polite tenants back off exponentially with full jitter (200 ms, doubling up to 60 s) and honor `Retry-After`. Aggressive tenants retry every 100 ms and ignore it. Under Aquifer a job is submitted once and Aquifer holds it until it runs.
 
 - **wild:** retries stacked across a chain of services. A client request goes `api` → `orders` → `inventory` and `payments` in parallel → the front door → the backend, and every service tries 3 times before passing a 503 up. 15 tenants in `ord`, `lhr` and `syd` (one large and four small per region) retry until they succeed, in four styles: polite, no-jitter, aggressive, and stacked (library inside SDK inside app). 40 minutes with a 3× peak, seven bursts, a 60 s backend outage at 20 minutes, and capacity doubling at 25. See [DESIGN-wild.md](DESIGN-wild.md).
+- **diy:** the wild regime with Envoy plus what a team would build itself: idempotency keys in Redis (`envoy-idem`), and idempotency plus a fair per-tenant queue and dispatcher (`envoy-queue`). See [DESIGN-diy.md](DESIGN-diy.md).
 
 ## Live headers
 

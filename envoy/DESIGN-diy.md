@@ -1,6 +1,6 @@
 # Design: Envoy plus what a team would build itself
 
-Status: signed off and built.
+Status: built and run (results in RESULTS.md).
 
 ## Why
 
