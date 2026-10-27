@@ -1,6 +1,6 @@
 # Design: the wild regime
 
-Status: signed off and built (`deploy/run.sh wild`, `cmd/service`).
+Status: signed off, built and run (results in [RESULTS.md](RESULTS.md#wild-retries-stacked-across-a-chain-of-services)).
 
 ## Why
 

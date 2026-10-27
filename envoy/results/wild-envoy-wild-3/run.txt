@@ -1,0 +1,16 @@
+mode=envoy
+regime=wild
+start_at=1793075011
+image=registry.fly.io/aqb-envoy-images:504ffe1
+envoy_image=envoyproxy/envoy:v1.39.3
+region=ord
+clients=ord:L1:3:polite:40 ord:s1:1:polite:10,s2:1:nojitter:10,s3:1:aggressive:10,s4:1:stack:10
+lhr:L2:3:nojitter:40 lhr:s5:1:polite:10,s6:1:nojitter:10,s7:1:aggressive:10,s8:1:stack:10
+syd:L3:3:stack:40 syd:s9:1:polite:10,s10:1:nojitter:10,s11:1:aggressive:10,s12:1:stack:10
+phases=warm:5m:0.5,normal:10m:1,peak:10m:3,after:10m:1.5,cool:5m:0.5
+workload=wild
+bursts=6m:30s,8m40s:15s,11m20s:60s,13m10s:20s,26m30s:45s,29m:10s,32m15s:30s
+outage=20m:60s
+capacity_schedule=25m:16
+extra_backends=
+global_rps=80
