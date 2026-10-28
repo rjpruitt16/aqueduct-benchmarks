@@ -726,7 +726,7 @@ func (c *client) viaProxy(j *job) result {
 func (c *client) holdProxy(j *job) result {
 	failures := 0
 	for attempt := 1; ; attempt++ {
-		left := c.patience - time.Since(j.created)
+		left := c.remaining(j)
 		if left <= 0 {
 			return result{why: "gave_up"}
 		}
@@ -764,7 +764,7 @@ func (c *client) pollAquifer(j *job) result {
 	jobID := ""
 	failures := 0
 	for attempt := 1; ; attempt++ {
-		left := c.patience - time.Since(j.created)
+		left := c.remaining(j)
 		if left <= 0 {
 			return result{why: "gave_up"}
 		}
@@ -831,10 +831,19 @@ func (c *client) refusedWait(j *job, status int, err error, failures int, retryA
 	return max(time.Duration(rand.Float64()*float64(window)), retryAfter)
 }
 
+// remaining is how much longer the job's caller will wait: PATIENCE after
+// the job was created, or with no PATIENCE, as long as it takes (a day).
+func (c *client) remaining(j *job) time.Duration {
+	if c.patience <= 0 {
+		return 24 * time.Hour
+	}
+	return c.patience - time.Since(j.created)
+}
+
 // pace waits d before the job's next request, cut short to leave one last
 // look just before the caller gives up; false when no time is left.
 func (c *client) pace(j *job, d time.Duration) bool {
-	left := c.patience - time.Since(j.created) - 50*time.Millisecond
+	left := c.remaining(j) - 50*time.Millisecond
 	if left <= 0 {
 		j.attempts++
 		return false

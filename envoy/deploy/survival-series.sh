@@ -13,6 +13,10 @@
 # (ctl), holding the stream (hold) and polling (poll), at delays of 3, 5 and
 # 10 minutes; one round's 3 and 5 together, then its 10.
 #
+# PART=unbounded runs envoy-max and Aquifer with the hold client, with
+# callers that retry until their job is done (UNBOUNDED=1), at delays of 3, 5
+# and 10 minutes, one round at a time.
+#
 # Usage: deploy/survival-series.sh <series-name>   (FLY_ORG and IMAGE as for run.sh)
 #
 #   ROUNDS    default 2
@@ -41,6 +45,24 @@ batch_done() {
   wait
   for f in "$@"; do printf '%s: %s\n' "$f" "$(tail -1 "logs/$f.log")"; done
 }
+
+if [ "${PART:-main}" = unbounded ]; then
+  r=1
+  while [ "$r" -le "$ROUNDS" ]; do
+    names=""
+    for d in 3 5 10; do
+      one "$SERIES-envoy-max-d$d-$r" envoy-max SCALE_DELAY="$d" CLIENT_MEMORY=4096 UNBOUNDED=1
+      one "$SERIES-aq-hold-d$d-$r" aquifer SCALE_DELAY="$d" CLIENT_MEMORY=4096 UNBOUNDED=1 HOLD=1
+      names="$names $SERIES-envoy-max-d$d-$r $SERIES-aq-hold-d$d-$r"
+    done
+    echo "== unbounded round $r $(date -u +%TZ)"
+    # shellcheck disable=SC2086
+    batch_done $names
+    r=$((r + 1))
+  done
+  echo "== series done $(date -u +%TZ)"
+  exit 0
+fi
 
 if [ "${PART:-main}" = clients ]; then
   r=1

@@ -34,6 +34,8 @@
 #   POLL=1         survival, aquifer: callers submit to /jobs once and poll
 #                  GET /jobs/{id} at Aquifer's Retry-After
 #   CLIENT_MEMORY  survival: load client memory in MB (default 2048)
+#   UNBOUNDED=1    survival: callers retry until their job is done, with no
+#                  patience (PATIENCE=0), instead of giving up after 5 minutes
 #
 # The survival regime asks how long a front door can hold out until new
 # capacity arrives. Independent jobs, the tenants below, and callers that
@@ -172,6 +174,8 @@ case "$REGIME" in
     PHASES=warm:3m:0.5,overload:15m:3,cool:12m:0.5
     CAPACITY_SCHEDULE=$((3 + SCALE_DELAY))m:32
     PATIENCE=5m
+    # Callers that retry until their job is done, as callers in the wild do.
+    [ "${UNBOUNDED:-}" = 1 ] && PATIENCE=0
     ;;
   survival-smoke)
     PHASES=warm:1m:0.5,overload:4m:3,cool:3m:0.5
@@ -464,7 +468,7 @@ config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$
         MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "15s", DRAIN: "60m"} else {} end)
    + (if $redis == "" then {} else {REDIS_URL: $redis} end)
    + (if $patience == "" then {} else {PATIENCE: $patience, CALL: $call, NO_KEY: $nokey, HOLD: $hold, JOB_LOG: "1",
-        MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "10s", DRAIN: "30m"} end)')
+        MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "10s", DRAIN: (if $patience == "0" then "60m" else "30m" end)} end)')
 retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
   fail "could not publish the run's settings"
 echo "== load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
