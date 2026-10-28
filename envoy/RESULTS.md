@@ -193,7 +193,7 @@ The backend logs explained the gap. Up to v0.15, each of Aquifer's tenant queues
 
 One round of Aquifer v0.16.0 under the same wild regime (`a16-aquifer-wild-1`):
 
-| | Aquifer `630501d` (diy round 1) | Aquifer v0.16.0 | Envoy + queue (3 rounds) |
+| | Aquifer `630501d` (diy round 1; repeats and p99 across wild's 3) | Aquifer v0.16.0 | Envoy + queue (3 rounds) |
 |---|---|---|---|
 | Client requests completed | 46,356 | 47,103 | 47,188–47,500 |
 | Minutes 17–20 (8 workers), completed per second | 17.2 | 18.1 | 19.2–19.4 |
