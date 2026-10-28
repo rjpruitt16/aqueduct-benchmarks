@@ -80,8 +80,9 @@
 //	                /jobs and waiting for a webhook
 //	HOLD            1 to call /proxy as Aquifer's own client would (CALL=proxy):
 //	                hold the stream for up to a minute at a time and reconnect
-//	                at once with the same key; when Aquifer answers 202 (no
-//	                stream to spare), come back at its Retry-After; back off
+//	                at once with the same key; when Aquifer answers 202 or
+//	                ends the stream with a poll event (too far back to hold,
+//	                or no stream to spare), come back when it says; back off
 //	                (up to 10s, jittered) only after a refusal or a network
 //	                error, honoring Retry-After. PATIENCE still applies.
 //	                CALL=poll instead submits to /jobs once and polls GET
@@ -808,13 +809,13 @@ func (c *client) pollAquifer(j *job) result {
 	}
 }
 
-// told is how long to wait when Aquifer says when to come back; an
-// aggressive caller ignores it.
+// told is how long to wait when Aquifer says when to come back (it errs
+// early); an aggressive caller ignores it.
 func (c *client) told(j *job, retryAfter time.Duration) time.Duration {
 	if c.styles[j.tenant] == "aggressive" {
 		return c.aggressive
 	}
-	return max(retryAfter, time.Second)
+	return max(retryAfter, 100*time.Millisecond)
 }
 
 // refusedWait backs off after Aquifer refused (429, 503) or didn't answer:
@@ -885,7 +886,7 @@ func (c *client) checkJob(j *job, jobID string, timeout time.Duration) (string, 
 		return "", 0, 0, err
 	}
 	defer resp.Body.Close()
-	wait := retryAfter(resp.Header.Get("Retry-After"))
+	wait := serverWait(resp.Header)
 	if resp.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, resp.Body)
 		return "", resp.StatusCode, wait, nil
@@ -983,7 +984,7 @@ func (c *client) proxy(j *job, timeout time.Duration) (int, time.Duration, error
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode, retryAfter(resp.Header.Get("Retry-After")), nil
+		return resp.StatusCode, serverWait(resp.Header), nil
 	}
 	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		// The backend's own answer, or a repeat of a job already finished.
@@ -1006,6 +1007,13 @@ func (c *client) proxy(j *job, timeout time.Duration) (int, time.Duration, error
 		switch {
 		case strings.HasPrefix(line, "event:"):
 			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:") && event == "poll":
+			// Too far back to be held: come back when Aquifer says.
+			var out struct {
+				RetryAfterMs int64 `json:"retry_after_ms"`
+			}
+			json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &out)
+			return http.StatusAccepted, time.Duration(out.RetryAfterMs) * time.Millisecond, nil
 		case strings.HasPrefix(line, "data:") && (event == "completed" || event == "failed"):
 			var out struct {
 				ResponseStatus int `json:"response_status"`
@@ -1250,6 +1258,15 @@ func pct(xs []float64, p float64) float64 {
 	s := append([]float64(nil), xs...)
 	sort.Float64s(s)
 	return s[min(len(s)-1, int(p*float64(len(s))))]
+}
+
+// serverWait is when Aquifer said to come back: X-Aqueduct-Retry-After-Ms
+// if it sent one, else Retry-After.
+func serverWait(h http.Header) time.Duration {
+	if ms, err := strconv.ParseInt(h.Get("X-Aqueduct-Retry-After-Ms"), 10, 64); err == nil && ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return retryAfter(h.Get("Retry-After"))
 }
 
 func retryAfter(v string) time.Duration {

@@ -63,7 +63,7 @@ for run in sys.argv[1:]:
         for d in (total, by_tenant.setdefault(tenant, {})):
             d[bucket] = d.get(bucket, 0) + 1
     buckets = ["answered", "not retrieved", "finished late", "never ran"]
-    hold = "hold" if info.get("hold") == "1" else "backoff"
+    hold = "hold" if info.get("hold") == "1" else "poll" if info.get("poll") == "1" else "backoff"
     print(f"== {os.path.basename(run)}  ({info.get('mode')}, D={info.get('scale_delay_min')} min, {hold} client)")
     n = len(jobs)
     print("  " + "  ".join(f"{b} {total.get(b, 0)} ({pct(total.get(b, 0), n).strip()})" for b in buckets))
