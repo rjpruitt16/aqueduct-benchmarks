@@ -1,10 +1,10 @@
 """Summarize survival runs whose callers retry until their job is done (UNBOUNDED=1).
 
 For each run: how much work finished, how long each caller waited for its
-result (from creating the job to having the result), when the last job offered during the overload got its result (from
-the start of the overload, and from when capacity arrived): the backlog
-clearing,
-requests per job, and repeated work at the backend.
+result (from creating the job to having the result), when the last job
+offered during the overload got its result (the backlog clearing, from the
+start of the overload and from when capacity arrived), requests per job, and
+repeated work at the backend.
 """
 import gzip, glob, json, os, sys
 
