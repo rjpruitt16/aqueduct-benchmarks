@@ -778,7 +778,7 @@ func (c *client) proxy(j *job, timeout time.Duration) (int, time.Duration, error
 	}
 	// Held in Aquifer's queue: wait on its events for the outcome.
 	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	sc.Buffer(make([]byte, 0, 4<<10), 1<<20)
 	event := ""
 	for sc.Scan() {
 		line := sc.Text()

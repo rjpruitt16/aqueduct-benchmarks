@@ -183,6 +183,9 @@ case "$REGIME" in survival*)
   # decide how much it lets through (envoy-max below), Aquifer follows the
   # backend's headers within this ceiling.
   GLOBAL_RPS=320
+  # Callers hold one stream per job waiting in Aquifer's queue; 1 GB ran out
+  # for the big tenant once the backlog grew (surv-aquifer-d3-1, first try).
+  CLIENT_MEMORY=2048
   ;;
 esac
 ADV=${ADVERTISE:-$DEFAULT_ADVERTISE}
@@ -328,7 +331,7 @@ fi
 echo "== clients"
 for spec in $CLIENTS; do
   region=${spec%%:*}
-  run_machine "client-$(cname "$spec")" "$IMAGE" -r "$region" --vm-size shared-cpu-2x --vm-memory 1024 \
+  run_machine "client-$(cname "$spec")" "$IMAGE" -r "$region" --vm-size shared-cpu-2x --vm-memory "${CLIENT_MEMORY:-1024}" \
     --restart no --detach -e ROLE=client -e NAME="$(cname "$spec")" -e TENANTS="${spec#*:}" \
     -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
 done
@@ -528,6 +531,7 @@ fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config
   echo "global_rps=$GLOBAL_RPS"
   echo "advertise=${ADV:-none}"
   echo "backlog_seconds=$BACKLOG_SECONDS"
+  echo "client_memory_mb=${CLIENT_MEMORY:-1024}"
   if [ -n "$PATIENCE" ]; then
     echo "scale_delay_min=$SCALE_DELAY"
     echo "patience=$PATIENCE"

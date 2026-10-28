@@ -19,9 +19,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p logs
 
 # one <name> <mode> [env...] runs one run.sh in the background.
+# A run with results already in results/<name>/run.txt is skipped, so the
+# series can be restarted after a failure.
 one() {
   name=$1 mode=$2
   shift 2
+  [ -f "results/$name/run.txt" ] && return
   env "$@" sh "$HERE/run.sh" "$mode" survival "$name" > "logs/$name.log" 2>&1 &
 }
 batch_done() {
