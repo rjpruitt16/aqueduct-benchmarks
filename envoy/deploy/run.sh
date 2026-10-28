@@ -31,6 +31,9 @@
 #                  attempt
 #   HOLD=1         survival, aquifer: callers hold the /proxy stream and
 #                  reconnect at once with the same key (Aquifer's own client)
+#   POLL=1         survival, aquifer: callers submit to /jobs once and poll
+#                  GET /jobs/{id} at Aquifer's Retry-After
+#   CLIENT_MEMORY  survival: load client memory in MB (default 2048)
 #
 # The survival regime asks how long a front door can hold out until new
 # capacity arrives. Independent jobs, the tenants below, and callers that
@@ -187,7 +190,7 @@ case "$REGIME" in survival*)
   GLOBAL_RPS=320
   # Callers hold one stream per job waiting in Aquifer's queue; 1 GB ran out
   # for the big tenant once the backlog grew (surv-aquifer-d3-1, first try).
-  CLIENT_MEMORY=2048
+  CLIENT_MEMORY=${CLIENT_MEMORY:-2048}
   ;;
 esac
 ADV=${ADVERTISE:-$DEFAULT_ADVERTISE}
@@ -410,7 +413,8 @@ else
   anonymize "$cfg" > "$OUT/aquifer.yaml"
   run_machine aquifer "$IMAGE" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-failure --detach --file-local /etc/aquifer.yaml="$cfg" \
-    -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/tmp/aquifer -e CONFIG_PATH=/etc/aquifer.yaml >/dev/null
+    -e ROLE=aquifer -e AQUIFER_ADAPTER=http -e PORT=8080 -e DB_PATH=/tmp/aquifer -e CONFIG_PATH=/etc/aquifer.yaml \
+    -e AQUIFER_SHARED_DESTINATION_LIMITS=true -e AQUIFER_READY_ESTIMATES=true >/dev/null
   AQUIFER="http://$(host aquifer):8080"
   FRONT=$AQUIFER
   if [ -n "$EXTRA_BACKENDS" ]; then
@@ -452,14 +456,14 @@ config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$
   --arg phases "$PHASES" --arg start "$START_AT" --arg report "http://$BACKEND:8080/report" \
   --arg pool "$POOL" --arg register "$REGISTER_URL" --arg workload "$WORKLOAD" \
   --arg api "$API" --arg bursts "$BURSTS" --arg outage "$OUTAGE" --arg redis "$REDIS_URL" \
-  --arg patience "$PATIENCE" --arg nokey "${NO_KEY:-}" --arg hold "${HOLD:-}" \
+  --arg patience "$PATIENCE" --arg nokey "${NO_KEY:-}" --arg hold "${HOLD:-}" --arg call "$([ "${POLL:-}" = 1 ] && echo poll || echo proxy)" \
   '{MODE: $mode, TARGET: $target, BACKEND_URL: $backend, PHASES: $phases, START_AT: $start, REPORT_URL: $report}
    + (if $pool == "" then {} else {POOL: $pool, REGISTER_URL: $register} end)
    + (if $workload == "chains" then {WORKLOAD: "chains", MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", DRAIN: "60m"} else {} end)
    + (if $workload == "wild" then {WORKLOAD: "wild", TARGET: $api, FRONT_URL: $target, BURSTS: $bursts, OUTAGE: $outage,
         MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "15s", DRAIN: "60m"} else {} end)
    + (if $redis == "" then {} else {REDIS_URL: $redis} end)
-   + (if $patience == "" then {} else {PATIENCE: $patience, CALL: "proxy", NO_KEY: $nokey, HOLD: $hold, JOB_LOG: "1",
+   + (if $patience == "" then {} else {PATIENCE: $patience, CALL: $call, NO_KEY: $nokey, HOLD: $hold, JOB_LOG: "1",
         MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "10s", DRAIN: "30m"} end)')
 retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
   fail "could not publish the run's settings"
@@ -539,6 +543,7 @@ fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config
     echo "patience=$PATIENCE"
     echo "no_key=${NO_KEY:-0}"
     echo "hold=${HOLD:-0}"
+    echo "poll=${POLL:-0}"
     echo "envoy_rps=$ENVOY_RPS"
     echo "tenant_rps=$TENANT_RPS"
   fi

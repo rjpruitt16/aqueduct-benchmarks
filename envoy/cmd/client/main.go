@@ -76,13 +76,17 @@
 //	                past it, and no retry starts after it. Work the front
 //	                door already holds may still run; the backend counts it.
 //	CALL            aquifer mode, jobs workload: "proxy" to call /proxy (see
-//	                above) instead of submitting to /jobs and waiting for a
-//	                webhook
+//	                above), or "poll" (see HOLD), instead of submitting to
+//	                /jobs and waiting for a webhook
 //	HOLD            1 to call /proxy as Aquifer's own client would (CALL=proxy):
 //	                hold the stream for up to a minute at a time and reconnect
-//	                at once with the same key; back off (up to 2s, jittered)
-//	                only after a refusal or a network error, honoring
-//	                Retry-After. PATIENCE still applies.
+//	                at once with the same key; when Aquifer answers 202 (no
+//	                stream to spare), come back at its Retry-After; back off
+//	                (up to 10s, jittered) only after a refusal or a network
+//	                error, honoring Retry-After. PATIENCE still applies.
+//	                CALL=poll instead submits to /jobs once and polls GET
+//	                /jobs/{id} when Aquifer's Retry-After says, with the same
+//	                backoff after a refusal.
 //	JOB_LOG         1 to add every job to the report as [id, created ms,
 //	                ended ms, outcome] (Unix ms; outcome "ok" or why it failed)
 //	NO_KEY          1 to send a new idempotency key on every attempt, as a
@@ -661,6 +665,8 @@ func (c *client) run(j *job) bool {
 		res = c.viaEnvoy(j)
 	case c.call == "proxy" && c.hold:
 		res = c.holdProxy(j)
+	case c.call == "poll":
+		res = c.pollAquifer(j)
 	case c.call == "proxy":
 		res = c.viaProxy(j)
 	default:
@@ -713,8 +719,9 @@ func (c *client) viaProxy(j *job) result {
 // holdProxy waits on /proxy the way Aquifer's own client would: a retry with
 // the same key only reattaches to the job Aquifer holds, so it costs the
 // backend nothing and needs no backoff. Each stream is held for up to a
-// minute, then reopened at once; only a refusal or a network error waits,
-// briefly and jittered, so a failing connection doesn't spin.
+// minute, then reopened at once. When Aquifer has no stream to spare (202)
+// the caller comes back when Retry-After says; only a refusal or a network
+// error backs off.
 func (c *client) holdProxy(j *job) result {
 	failures := 0
 	for attempt := 1; ; attempt++ {
@@ -726,30 +733,180 @@ func (c *client) holdProxy(j *job) result {
 		if attempt == 1 {
 			c.firstAnswer(j)
 		}
-		if err == nil && status == http.StatusOK {
+		switch {
+		case err == nil && status == http.StatusOK:
 			return result{ok: true}
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
+		case errors.Is(err, context.DeadlineExceeded):
 			// Held the whole stream without an outcome: reopen it now.
 			failures = 0
 			j.attempts++
 			continue
-		}
-		if err == nil && (status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable) {
-			c.refused(j)
+		case err == nil && status == http.StatusAccepted:
+			failures = 0
+			if !c.pace(j, c.told(j, retryAfter)) {
+				return result{why: "gave_up"}
+			}
+			continue
 		}
 		failures++
-		window := min(2*time.Second, time.Duration(float64(c.base)*math.Pow(2, float64(min(failures-1, 30)))))
-		d := max(time.Duration(rand.Float64()*float64(window)), retryAfter)
-		if c.styles[j.tenant] == "aggressive" {
-			d = c.aggressive
-		}
-		if time.Since(j.created)+d >= c.patience {
-			j.attempts++
+		if !c.pace(j, c.refusedWait(j, status, err, failures, retryAfter)) {
 			return result{why: "gave_up"}
 		}
-		c.wait(j, d)
 	}
+}
+
+// pollAquifer submits the job to /jobs once and polls GET /jobs/{id} when
+// Aquifer's Retry-After says to, with no retry limit: Aquifer's own client
+// for a caller that doesn't hold a connection. A missing job is submitted
+// again under the same key. Only a refusal or a network error backs off.
+func (c *client) pollAquifer(j *job) result {
+	jobID := ""
+	failures := 0
+	for attempt := 1; ; attempt++ {
+		left := c.patience - time.Since(j.created)
+		if left <= 0 {
+			return result{why: "gave_up"}
+		}
+		var (
+			state      string
+			status     int
+			retryAfter time.Duration
+			err        error
+		)
+		if jobID == "" {
+			jobID, status, err = c.submitJob(j, min(c.timeout, left))
+		} else {
+			state, status, retryAfter, err = c.checkJob(j, jobID, min(c.timeout, left))
+		}
+		if attempt == 1 {
+			c.firstAnswer(j)
+		}
+		switch {
+		case err == nil && state == "ok":
+			return result{ok: true}
+		case err == nil && state == "failed":
+			return result{why: "aquifer_failed"}
+		case err == nil && status == http.StatusNotFound:
+			jobID = ""
+			continue
+		case err == nil && (status == http.StatusOK || status == http.StatusCreated || status == http.StatusAccepted):
+			failures = 0
+			if state == "" {
+				// Just submitted: ask at once where it stands.
+				j.attempts++
+				continue
+			}
+			if !c.pace(j, c.told(j, retryAfter)) {
+				return result{why: "gave_up"}
+			}
+			continue
+		}
+		failures++
+		if !c.pace(j, c.refusedWait(j, status, err, failures, retryAfter)) {
+			return result{why: "gave_up"}
+		}
+	}
+}
+
+// told is how long to wait when Aquifer says when to come back; an
+// aggressive caller ignores it.
+func (c *client) told(j *job, retryAfter time.Duration) time.Duration {
+	if c.styles[j.tenant] == "aggressive" {
+		return c.aggressive
+	}
+	return max(retryAfter, time.Second)
+}
+
+// refusedWait backs off after Aquifer refused (429, 503) or didn't answer:
+// exponential with full jitter, up to 10 s, or Retry-After if longer.
+func (c *client) refusedWait(j *job, status int, err error, failures int, retryAfter time.Duration) time.Duration {
+	if err == nil && (status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable) {
+		c.refused(j)
+	}
+	if c.styles[j.tenant] == "aggressive" {
+		return c.aggressive
+	}
+	window := min(10*time.Second, time.Duration(float64(c.base)*math.Pow(2, float64(min(failures-1, 30)))))
+	return max(time.Duration(rand.Float64()*float64(window)), retryAfter)
+}
+
+// pace waits d before the job's next request, cut short to leave one last
+// look just before the caller gives up; false when no time is left.
+func (c *client) pace(j *job, d time.Duration) bool {
+	left := c.patience - time.Since(j.created) - 50*time.Millisecond
+	if left <= 0 {
+		j.attempts++
+		return false
+	}
+	c.wait(j, min(d, left))
+	return true
+}
+
+// submitJob creates the job on /jobs, returning its ID.
+func (c *client) submitJob(j *job, timeout time.Duration) (string, int, error) {
+	raw, _ := json.Marshal(map[string]any{
+		"user_id":        j.tenant,
+		"idempotent_key": j.id,
+		"url":            c.backendURL,
+		"method":         http.MethodPost,
+		"headers":        map[string]string{"X-Tenant": j.tenant, "X-Job-Id": j.id},
+		"max_retries":    -1,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.target+"/jobs", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant", j.tenant)
+	c.request(j.tenant)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		JobID string `json:"job_id"`
+	}
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		return "", resp.StatusCode, nil
+	}
+	return out.JobID, resp.StatusCode, nil
+}
+
+// checkJob asks Aquifer where a job stands: state is "ok" or "failed" once
+// it has finished, "waiting" before, with the Retry-After Aquifer gave.
+func (c *client) checkJob(j *job, jobID string, timeout time.Duration) (string, int, time.Duration, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.target+"/jobs/"+jobID, nil)
+	c.request(j.tenant)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	defer resp.Body.Close()
+	wait := retryAfter(resp.Header.Get("Retry-After"))
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
+		return "", resp.StatusCode, wait, nil
+	}
+	var out struct {
+		Status string `json:"status"`
+		Result *struct {
+			ResponseStatus int `json:"response_status"`
+		} `json:"result"`
+	}
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
+	switch out.Status {
+	case "completed":
+		if out.Result == nil || out.Result.ResponseStatus == 0 || out.Result.ResponseStatus == http.StatusOK {
+			return "ok", resp.StatusCode, 0, nil
+		}
+		return "failed", resp.StatusCode, 0, nil
+	case "failed":
+		return "failed", resp.StatusCode, 0, nil
+	}
+	return "waiting", resp.StatusCode, wait, nil
 }
 
 // retry sends the job until it succeeds, backing off between attempts, or

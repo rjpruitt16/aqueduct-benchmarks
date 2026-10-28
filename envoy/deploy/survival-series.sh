@@ -8,13 +8,18 @@
 # backoff client (the control) and with its own client (HOLD=1), at delays of
 # 3 and 5 minutes, one round at a time.
 #
+# PART=clients reruns Aquifer alone (an Aquifer with connection and stream
+# limits and ready estimates) with three clients: the series' backoff client
+# (ctl), holding the stream (hold) and polling (poll), at delays of 3, 5 and
+# 10 minutes; one round's 3 and 5 together, then its 10.
+#
 # Usage: deploy/survival-series.sh <series-name>   (FLY_ORG and IMAGE as for run.sh)
 #
 #   ROUNDS    default 2
 #   DELAYS    default "1 3 5 10", run in pairs
 #   SETUPS    default "envoy envoy-max aquifer"
 #   VARIANTS  0 to skip the variants
-#   PART      main (default) or client
+#   PART      main (default), client or clients
 set -u
 SERIES=${1:?usage: survival-series.sh <series-name>}
 ROUNDS=${ROUNDS:-2}
@@ -36,6 +41,27 @@ batch_done() {
   wait
   for f in "$@"; do printf '%s: %s\n' "$f" "$(tail -1 "logs/$f.log")"; done
 }
+
+if [ "${PART:-main}" = clients ]; then
+  r=1
+  while [ "$r" -le "$ROUNDS" ]; do
+    for ds in "3 5" 10; do
+      names=""
+      for d in $ds; do
+        one "$SERIES-aq-ctl-d$d-$r" aquifer SCALE_DELAY="$d" CLIENT_MEMORY=4096
+        one "$SERIES-aq-hold-d$d-$r" aquifer SCALE_DELAY="$d" CLIENT_MEMORY=4096 HOLD=1
+        one "$SERIES-aq-poll-d$d-$r" aquifer SCALE_DELAY="$d" CLIENT_MEMORY=4096 POLL=1
+        names="$names $SERIES-aq-ctl-d$d-$r $SERIES-aq-hold-d$d-$r $SERIES-aq-poll-d$d-$r"
+      done
+      echo "== clients round $r, delays $ds $(date -u +%TZ)"
+      # shellcheck disable=SC2086
+      batch_done $names
+    done
+    r=$((r + 1))
+  done
+  echo "== series done $(date -u +%TZ)"
+  exit 0
+fi
 
 if [ "${PART:-main}" = client ]; then
   r=1
