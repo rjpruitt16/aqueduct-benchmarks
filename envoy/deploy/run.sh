@@ -3,13 +3,16 @@
 # front door in one region, load clients in several regions, waits for every
 # client's report, copies the results out, and destroys the app.
 #
-# Usage: deploy/run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>
+# Usage: deploy/run.sh <envoy|envoy-max|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|survival|smoke|scaleout-smoke|chains-smoke|wild-smoke|survival-smoke> <run-name>
 #
 # Front doors: envoy, aquifer, or both (Envoy at the edge, Aquifer behind it).
 # For the wild regime, two more keep Envoy and add what a team would build
 # itself, with Redis (see DESIGN-diy.md): envoy-idem (idempotency keys in the
 # bottom services) and envoy-queue (idempotency plus a per-tenant queue that
 # cmd/dispatcher runs through Envoy).
+# envoy-max is Envoy with its rate limits sized for the capacity after
+# scaling in the survival regime (see DESIGN-survival.md) instead of the
+# starting capacity.
 #
 # Environment:
 #   FLY_ORG        Fly organization (required)
@@ -20,7 +23,24 @@
 #   AQUIFER_REF    the Aquifer release or commit built into IMAGE, recorded
 #                  in run.txt
 #   ADVERTISE      the backends' header mode, live (default; split by the
-#                  caller's active queues) or total (Aquifer 0.16 and later)
+#                  caller's active queues), total (Aquifer 0.16 and later;
+#                  the survival default) or none
+#   SCALE_DELAY    survival: minutes from the start of the overload until
+#                  the new capacity arrives (default 5)
+#   NO_KEY=1       survival: callers send a new idempotency key on every
+#                  attempt
+#
+# The survival regime asks how long a front door can hold out until new
+# capacity arrives. Independent jobs, the tenants below, and callers that
+# all retry the same way whatever the front door: up to 10 s per attempt,
+# exponential backoff with full jitter up to 60 s, honoring Retry-After,
+# and giving up 5 minutes after the job was created (small-4 is
+# aggressive instead: every 100 ms, ignoring Retry-After). Envoy callers
+# send to /work, Aquifer callers to /proxy with the job's ID as the
+# idempotency key. Load: 0.5x for 3 minutes, 3x for 15, then 0.5x for 12;
+# the backend goes from 8 to 32 workers SCALE_DELAY minutes into the 3x.
+# It advertises its totals, with X-Aqueduct-Max-Backlog at 30 minutes of
+# its capacity.
 #
 # Capacity: the backend starts with 8 workers at 200 ms (40 jobs/s). In the
 # changing regime it doubles to 16 workers 15 minutes in, while overloaded,
@@ -71,9 +91,9 @@
 # for Envoy and Aquifer); one shared-cpu-2x client per region.
 set -eu
 
-MODE=${1:?usage: run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
-REGIME=${2:?usage: run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
-NAME=${3:?usage: run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
+MODE=${1:?usage: run.sh <envoy|envoy-max|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|survival|smoke|scaleout-smoke|chains-smoke|wild-smoke|survival-smoke> <run-name>}
+REGIME=${2:?usage: run.sh <envoy|envoy-max|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|survival|smoke|scaleout-smoke|chains-smoke|wild-smoke|survival-smoke> <run-name>}
+NAME=${3:?usage: run.sh <envoy|envoy-max|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|survival|smoke|scaleout-smoke|chains-smoke|wild-smoke|survival-smoke> <run-name>}
 : "${FLY_ORG:?set FLY_ORG}"
 : "${IMAGE:?set IMAGE}"
 ENVOY_IMAGE=${ENVOY_IMAGE:-envoyproxy/envoy:v1.39.3}
@@ -81,13 +101,17 @@ REGION=${REGION:-ord}
 APP=aqb-envoy-$NAME
 OUT=results/$NAME
 HERE=$(cd "$(dirname "$0")" && pwd)
-case "$MODE" in envoy | aquifer | both | envoy-idem | envoy-queue) ;; *) echo "mode must be envoy, aquifer, both, envoy-idem or envoy-queue" >&2; exit 2 ;; esac
+case "$MODE" in envoy | envoy-max | aquifer | both | envoy-idem | envoy-queue) ;; *) echo "mode must be envoy, envoy-max, aquifer, both, envoy-idem or envoy-queue" >&2; exit 2 ;; esac
 EXTRA_BACKENDS=""
 ONLINE_AFTER=15m
 GLOBAL_RPS=80
 WORKLOAD=jobs
 BURSTS=""
 OUTAGE=""
+DEFAULT_ADVERTISE=live
+BACKLOG_SECONDS=60
+SCALE_DELAY=${SCALE_DELAY:-5}
+PATIENCE=""
 case "$REGIME" in
   smoke)
     PHASES=steady:2m:0.5
@@ -139,8 +163,29 @@ case "$REGIME" in
     BURSTS=40s:10s
     OUTAGE=2m:30s
     ;;
-  *) echo "regime must be steady, changing, scaleout, chains, wild, smoke, scaleout-smoke, chains-smoke or wild-smoke" >&2; exit 2 ;;
+  survival)
+    PHASES=warm:3m:0.5,overload:15m:3,cool:12m:0.5
+    CAPACITY_SCHEDULE=$((3 + SCALE_DELAY))m:32
+    PATIENCE=5m
+    ;;
+  survival-smoke)
+    PHASES=warm:1m:0.5,overload:4m:3,cool:3m:0.5
+    CAPACITY_SCHEDULE=2m:32
+    PATIENCE=2m
+    ;;
+  *) echo "regime must be steady, changing, scaleout, chains, wild, survival, smoke, scaleout-smoke, chains-smoke, wild-smoke or survival-smoke" >&2; exit 2 ;;
 esac
+case "$REGIME" in survival*)
+  DEFAULT_ADVERTISE=total
+  BACKLOG_SECONDS=1800
+  # Both front doors may use the capacity after scaling: Envoy's own limits
+  # decide how much it lets through (envoy-max below), Aquifer follows the
+  # backend's headers within this ceiling.
+  GLOBAL_RPS=320
+  ;;
+esac
+ADV=${ADVERTISE:-$DEFAULT_ADVERTISE}
+[ "$ADV" = none ] && ADV=""
 for tool in fly jq base64; do
   command -v "$tool" >/dev/null || { echo "run.sh needs $tool" >&2; exit 2; }
 done
@@ -156,7 +201,17 @@ if [ "$WORKLOAD" = wild ]; then
 lhr:L2:3:nojitter:40 lhr:s5:1:polite:10,s6:1:nojitter:10,s7:1:aggressive:10,s8:1:stack:10
 syd:L3:3:stack:40 syd:s9:1:polite:10,s10:1:nojitter:10,s11:1:aggressive:10,s12:1:stack:10"
 fi
+case "$REGIME" in survival*)
+  CLIENTS="$REGION:big:20 iad:medium:10,small-1:2.5 dfw:small-2:2.5,small-3:2.5 lhr:small-4:2.5:aggressive"
+  ;;
+esac
 TENANT_RPS=20 # per-tenant limit in Envoy: half the starting capacity
+ENVOY_RPS=$GLOBAL_RPS
+case "$REGIME:$MODE" in
+  survival*:envoy) ENVOY_RPS=80 ;; # twice the starting capacity, as in every series
+  # The same proportions for the capacity after scaling (32 workers, 160/s).
+  survival*:envoy-max) TENANT_RPS=80 ENVOY_RPS=320 ;;
+esac
 # A client machine's name: its region and first tenant, e.g. ord-big.
 cname() {
   t=${1#*:}
@@ -222,7 +277,7 @@ trap cleanup EXIT
 echo "== backend"
 run_machine backend "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
   --restart on-failure --detach -e ROLE=backend -e WORKERS=8 -e SERVICE_MS=200 -e QUEUE_MAX=64 \
-  -e ADVERTISE="${ADVERTISE:-live}" -e CAPACITY_SCHEDULE="$CAPACITY_SCHEDULE" >/dev/null
+  -e ADVERTISE="$ADV" -e BACKLOG_SECONDS="$BACKLOG_SECONDS" -e CAPACITY_SCHEDULE="$CAPACITY_SCHEDULE" >/dev/null
 BACKEND=$(host backend)
 BACKENDS=$BACKEND
 # Machines that join mid-run: running from the start, but off the network
@@ -230,7 +285,7 @@ BACKENDS=$BACKEND
 for spec in $EXTRA_BACKENDS; do
   run_machine "${spec%%:*}" "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
     --restart on-failure --detach -e ROLE=backend -e WORKERS="${spec#*:}" -e SERVICE_MS=200 -e QUEUE_MAX=64 \
-    -e ADVERTISE="${ADVERTISE:-live}" -e ONLINE_AFTER="$ONLINE_AFTER" -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
+    -e ADVERTISE="$ADV" -e ONLINE_AFTER="$ONLINE_AFTER" -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
   BACKENDS="$BACKENDS $(host "${spec%%:*}")"
 done
 
@@ -313,7 +368,7 @@ AQUIFER=""
 if [ "$MODE" != aquifer ] && [ "$MODE" != both ]; then
   echo "== envoy"
   # shellcheck disable=SC2086
-  envoy_config envoy.yaml.tmpl "$TENANT_RPS" "$GLOBAL_RPS" $BACKENDS
+  envoy_config envoy.yaml.tmpl "$TENANT_RPS" "$ENVOY_RPS" $BACKENDS
   anonymize "$cfg" > "$OUT/envoy.yaml"
   run_machine front "$ENVOY_IMAGE" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-failure --detach --file-local /etc/envoy/envoy.yaml="$cfg" >/dev/null
@@ -329,6 +384,12 @@ else
     if [ -n "$EXTRA_BACKENDS" ]; then
       # Jobs go to a pool, whose queues take their ceiling from the defaults.
       printf 'defaults:\n  rps: %s\n  max_concurrent: 32\nupstreams:\n' "$GLOBAL_RPS"
+    elif [ -z "$ADV" ]; then
+      # No headers to follow: limits a team would set for the starting
+      # capacity, as Envoy's are (80/s in total; 2 in flight per tenant
+      # queue, 12 for the six tenants against 8 workers).
+      printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n'
+      printf '  "%s:8080":\n    rps: 80\n    max_concurrent: 2\n' "$BACKEND"
     else
       printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n'
       printf '  "%s:8080":\n    rps: %s\n    max_concurrent: 32\n' "$BACKEND" "$GLOBAL_RPS"
@@ -385,12 +446,15 @@ config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$
   --arg phases "$PHASES" --arg start "$START_AT" --arg report "http://$BACKEND:8080/report" \
   --arg pool "$POOL" --arg register "$REGISTER_URL" --arg workload "$WORKLOAD" \
   --arg api "$API" --arg bursts "$BURSTS" --arg outage "$OUTAGE" --arg redis "$REDIS_URL" \
+  --arg patience "$PATIENCE" --arg nokey "${NO_KEY:-}" \
   '{MODE: $mode, TARGET: $target, BACKEND_URL: $backend, PHASES: $phases, START_AT: $start, REPORT_URL: $report}
    + (if $pool == "" then {} else {POOL: $pool, REGISTER_URL: $register} end)
    + (if $workload == "chains" then {WORKLOAD: "chains", MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", DRAIN: "60m"} else {} end)
    + (if $workload == "wild" then {WORKLOAD: "wild", TARGET: $api, FRONT_URL: $target, BURSTS: $bursts, OUTAGE: $outage,
         MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "15s", DRAIN: "60m"} else {} end)
-   + (if $redis == "" then {} else {REDIS_URL: $redis} end)')
+   + (if $redis == "" then {} else {REDIS_URL: $redis} end)
+   + (if $patience == "" then {} else {PATIENCE: $patience, CALL: "proxy", NO_KEY: $nokey,
+        MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "10s", DRAIN: "30m"} end)')
 retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
   fail "could not publish the run's settings"
 echo "== load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
@@ -405,6 +469,9 @@ done
 # The services (and the dispatcher) report every 10 s; let them send their
 # last counts.
 [ "$WORKLOAD" = wild ] && sleep 20
+# Work Aquifer still holds after its callers gave up runs on; give it time
+# to finish before the backend's counts are copied.
+[ -n "$PATIENCE" ] && [ "$MODE" = aquifer ] && sleep 120
 
 echo "== copying results to $OUT"
 if [ "$MODE" != aquifer ]; then
@@ -458,7 +525,15 @@ fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config
   echo "capacity_schedule=$CAPACITY_SCHEDULE"
   echo "extra_backends=$EXTRA_BACKENDS"
   echo "global_rps=$GLOBAL_RPS"
-  echo "advertise=${ADVERTISE:-live}"
+  echo "advertise=${ADV:-none}"
+  echo "backlog_seconds=$BACKLOG_SECONDS"
+  if [ -n "$PATIENCE" ]; then
+    echo "scale_delay_min=$SCALE_DELAY"
+    echo "patience=$PATIENCE"
+    echo "no_key=${NO_KEY:-0}"
+    echo "envoy_rps=$ENVOY_RPS"
+    echo "tenant_rps=$TENANT_RPS"
+  fi
   [ -n "${AQUIFER_REF:-}" ] && echo "aquifer_ref=$AQUIFER_REF"
 } > "$OUT/run.txt"
 echo "== done: $OUT"

@@ -1,95 +1,72 @@
-# Design: how long does it survive?
+# Design: how much time does it buy?
 
-Status: proposal, not built. Needs sign-off before any code or spend.
+Status: signed off 2026-10-27, built.
 
-## Why
+## The question
 
-Every regime so far has a backend that never breaks: past its capacity it refuses or slows down, and capacity arrives on a fixed clock. Real services fall over. A service under too much load runs out of memory or threads and crashes; while it restarts its share of the fleet lands on the others; an autoscaler sees the load late and brings help a minute or two after that. The question a team actually asks is whether the system lasts long enough for help to arrive, and how much work is lost on the way.
+Traffic jumps to three times what the backend can handle, and new capacity arrives some minutes later, when an autoscaler or a person catches up. How much of the work still gets done, and how long can the new capacity take before work starts being lost? That delay is the time the front door buys.
 
-It answers four questions:
+## Why this shape
 
-1. Under a load that keeps rising, how long until the backend first crashes, and how often does it crash after that?
-2. Does the system survive until the autoscaler's new capacity arrives, or does it keep crashing even then?
-3. How much work is lost (accepted and never finished), and how long does the backlog take to drain once load falls?
-4. Where does the front door itself break? For Aquifer: its backlog limit, memory and disk. For Envoy plus a queue: Redis and the dispatcher.
+An earlier draft had a backend that crashes under load. Our Envoy already has circuit breakers, adaptive concurrency and admission control, and Aquifer follows the backend's limits, so neither would let it crash: "time to first crash" would read "never" for both. The difference between them is where the waiting work sits:
 
-## Setups
+- **Envoy** refuses what the backend can't take, and the callers hold the work: they retry until capacity arrives, for as long as their patience lasts.
+- **Aquifer** holds the work itself and runs it when capacity arrives, whether or not the caller is still waiting. What bounds it is the backlog the backend allows (`X-Aqueduct-Max-Backlog`) and Aquifer's own memory and disk.
 
-Three front doors, each over the same fragile backend:
+## Setup
 
-| Setup | Why it is here |
+- **Workload:** independent jobs, one hop: client → front door → backend. No chain of services, so no stacked retries.
+- **Callers:** the same loop for every front door, Envoy's best case: up to 10 s per attempt, exponential backoff with full jitter capped at 60 s, honoring `Retry-After`, and **giving up 5 minutes after the job was created**. Envoy callers send to `/work`; Aquifer callers to `/proxy`, with the job's ID as the idempotency key, so a retry waits on the job Aquifer already holds.
+- **Tenants** (jobs/s at 1×; 1× = 40 jobs/s, the starting capacity): big 20 (`ord`), medium 10 and small-1 2.5 (`iad`), small-2 and small-3 2.5 (`dfw`), small-4 2.5 (`lhr`). small-4 is aggressive: it retries every 100 ms and ignores `Retry-After`, reported separately as the one bad actor.
+- **Load:** 0.5× for 3 minutes, 3× for 15, 0.5× for 12.
+- **Capacity:** 8 workers at 200 ms (40 jobs/s), going to 32 (160 jobs/s) **D minutes into the 3×**, for D = 1, 3, 5 and 10.
+- **The backend** advertises its totals (`X-Aqueduct-Max-Concurrent`, `X-Aqueduct-Rps`), with `X-Aqueduct-Max-Backlog` at 30 minutes of its capacity, and refuses with a 503 past 64 waiting, as in every series.
+
+## Front doors
+
+| Setup | Limits |
 |---|---|
-| `envoy` | the bare proxy, as in every regime |
-| `envoy-queue` | the do-it-yourself queue that matched Aquifer in the `diy` series; the strongest baseline |
-| `aquifer` | Aquifer `630501d`, as before |
+| `envoy` | The config from every series, with limits a team would set for today's capacity: 20/s per tenant, 80/s in total |
+| `envoy-max` | The same config with the limits in the same proportions to the capacity after scaling: 80/s per tenant, 320/s in total |
+| `aquifer` | v0.16.0, following the backend's headers under a ceiling of 320/s |
 
-`envoy-idem` is left out: it behaved like `envoy` under refusals and adds cost without a new question.
+Envoy's rate limits and circuit-breaker limits are fixed in its config: they don't grow when capacity does. Adaptive concurrency (up to 64 in flight), admission control and load balancing do adapt. `envoy` shows what fixed limits sized for today cost when capacity grows; `envoy-max` gives Envoy limits sized for later, which let the overload through before then.
 
-## The fragile backend
+Variants, Aquifer only (Envoy has no headers or keys to take away), at D = 5:
 
-`cmd/backend` gains a crash model, off unless `CRASH` is set:
-
-- **When it crashes.** If requests waiting inside the backend stay above `CRASH_AT` (default 3× its workers) for `CRASH_AFTER` (default 5 s), it crashes. This stands in for a service that queues internally until memory or threads run out. A front door that keeps the backend at its advertised limit never trips it; one that lets requests pile up does.
-- **What a crash does.** Every request in the backend fails at once with a dropped connection (counted as lost work: the job may or may not have run, which is the honest worst case), and for `RESTART` (default 45 s, drawn between 30 and 60 s) new connections are refused, not answered with a 503. Then it starts with an empty line.
-- The crash is simulated in the process, not a real machine restart, so the timing is the same in every run and the backend can keep its counts.
-
-## Load and the autoscaler
-
-- **Load ramps.** 15 tenants and services as in wild. Load starts at 0.5× and rises by 0.5× every 2 minutes to 6× at 22 minutes, holds for 8 minutes, then falls to 0.5× and stays there until 50 minutes, so the drain can be measured.
-- **The autoscaler** is a small controller (new, `cmd/autoscaler`) that reads the backend's own report of how busy it is (time its workers spent busy over the last 30 s), the same for every setup. When that stays above 80% for 60 s it asks for more capacity; the capacity arrives `SCALE_DELAY` later (default 90 s, a cold start), in steps of +8 workers, up to 4 steps (8 → 40 workers). It never scales down during the run.
-- Capacity is added inside the one backend through its existing capacity change, rather than as new machines. The scale-out comparison is still blocked on Envoy's panic threshold and a per-member limit in Aquifer's pools; this regime should not wait on that, and it isolates survival from load balancing. Real machines are a later step once the scale-out fixes land.
-
-## Where the front door breaks
-
-A separate, shorter run per front door, with no crash model and plenty of backend capacity held back: load ramps until the front door, not the backend, is the limit.
-
-- Aquifer on a deliberately small machine (shared-cpu-1x, 512 MB), with its default `Max-Backlog`. Recorded every 10 s: memory, disk used by its store, backlog length, what it answers when the backlog is full, and whether it stays up.
-- Envoy plus queue with Redis and the dispatcher on the same small size: Redis memory, list lengths, dispatcher memory.
-- Plain Envoy on the same size, for completeness; it holds nothing, so it should only run out of connections or CPU.
+- **No headers** (`ADVERTISE=none`): the backend says nothing, and Aquifer runs on limits a team would set for today, like `envoy`: 80/s in total, 2 in flight per tenant.
+- **No key** (`NO_KEY=1`): callers send a new idempotency key on every attempt, as a caller with no stable job ID would. The backend still sees the real job ID, so repeats are counted.
 
 ## What is measured
 
-| Measure | Why |
-|---|---|
-| Time to first crash, number of crashes, total time down | how long it holds and how often it falls |
-| Crashes after the autoscaler's last step | whether it survived until help arrived |
-| Lost work: requests in the backend when it crashed | the cost of each crash |
-| Completed requests, sends per completion, repeats | as in every regime |
-| Time to drain after load falls | how fast it recovers |
-| Peak backlog, memory and disk in the front door (and Redis) | what holding the work costs, and where it breaks |
-| Load (×) at which the front door itself first fails, and how | the breaking-point runs |
+Two numbers side by side for every run, because they answer different questions:
+
+1. **Answered in time:** the caller got a successful answer before giving up. This is what a waiting person or a synchronous API call needs; holding work doesn't help it.
+2. **Ran at the backend:** the job ran at least once, by the backend's count of unique job IDs, even if its caller had given up. With Aquifer the result is kept for the caller to look up later; with Envoy a run whose caller gave up is a side effect nobody heard about.
+
+Also: requests per job, repeats of work already done, latency (p50, p99) during the overload, the aggressive tenant against the polite ones, and how busy the backend was after capacity arrived.
+
+**Time bought** is the largest D at which (1) and (2) stay near 100%.
 
 ## Fairness
 
-- The same backend, crash model, load and autoscaler for every setup; the autoscaler reads the backend, not the front door, so no setup gets an earlier signal.
-- `envoy-queue` and Aquifer both follow `X-Aqueduct-Max-Concurrent`; Envoy keeps its rate limits from every series. If Envoy crashes the backend repeatedly, that is reported as what a bare proxy does, and a run with Envoy's circuit breaker (`max_pending_requests`, `max_requests`) set to the backend's limit is added so Envoy is shown configured well, not only by default.
-- Lost work counts against every setup the same way.
-- Where Aquifer breaks is reported as plainly as where the others do.
+- The same caller loop, patience and backoff for every front door; only the endpoint differs.
+- Envoy keeps the config from every series. Its fixed limits are reported as a cost, not tuned away: `envoy-max` is there so the best-case Envoy is shown too.
+- Both numbers are reported for every setup. If Aquifer only wins on (2), the write-up says so: it buys time for work that can finish later (webhooks, jobs, agent tasks), not for a caller who needs an answer now.
 
-## Build
+## Runs and cost
 
-- `cmd/backend`: the crash model (`CRASH`, `CRASH_AT`, `CRASH_AFTER`, `RESTART`), busy-time reporting, crash and restart events.
-- `cmd/autoscaler` (new, small): reads the backend's report, applies the delay and steps, logs each decision.
-- `cmd/client`: the ramp schedule (a new load profile).
-- `deploy/run.sh`: a `survival` regime and a `breaking` regime; the autoscaler machine; machine size overrides for the front door.
-- Envoy: an extra config with circuit-breaker limits for the `envoy-cb` variant.
-- Analysis: crash timeline, lost work, drain time, front-door resources.
-- Local check on the Mac first, tiny, as before; then one 10-minute smoke run per setup on Fly; then the series.
+| Step | Runs | Estimate |
+|---|---|---|
+| Smoke: `envoy`, `envoy-max`, `aquifer`, 8 minutes | 3 | about $1.50 |
+| Series: 3 setups × D = 1, 3, 5, 10 × 2 rounds | 24 | about $12 |
+| Variants: no headers, no key, at D = 5 × 2 rounds | 4 | about $2 |
+| Total | 31 | about $15 |
 
-## Cost
+A run is 6 machines for about 40 minutes. `deploy/survival-series.sh` runs one round of two delays at a time (6 apps).
 
-| Step | Estimate |
-|---|---|
-| Smoke runs (4 setups, 10 min) | about $1 |
-| Survival series: `envoy`, `envoy-cb`, `envoy-queue`, `aquifer`, 50 min, 2 rounds each | about $10–12 |
-| Breaking-point runs: 3 front doors, about 20 min, 2 rounds each | about $2–3 |
-| Total | about $13–16 |
+## Left for later
 
-Two rounds instead of three: the last four series agreed closely between rounds. A third round can be added for any setup whose two rounds disagree.
-
-## To decide
-
-1. **Crash model:** in-process simulation as above, or real machine restarts (more realistic, noisier, harder to count lost work)?
-2. **Envoy with a circuit breaker:** include `envoy-cb` (recommended, it is the fair Envoy here), or keep Envoy as configured in every series?
-3. **Autoscaling inside one backend now**, real machines after the scale-out fixes (recommended), or wait and do machines only?
-4. **Breaking-point runs:** include them now, or run survival first?
+- A backend that crashes under load, if a later setup can let it.
+- The front door's own breaking point (Aquifer on a small machine, Redis for a do-it-yourself queue), once these results are in.
+- Capacity as new machines rather than more workers in one, after the scale-out fixes.

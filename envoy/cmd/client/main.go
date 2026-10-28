@@ -4,7 +4,10 @@
 //	envoy    POST each job to Envoy and retry like a well-behaved SDK:
 //	         exponential backoff with full jitter, honoring Retry-After.
 //	aquifer  hand each job to Aquifer once (retrying only a refused
-//	         submission, the same way) and wait for Aquifer's webhook.
+//	         submission, the same way) and wait for Aquifer's webhook;
+//	         with CALL=proxy, call Aquifer's /proxy instead and retry it
+//	         exactly as the envoy mode retries /work: a retry with the same
+//	         idempotency key waits on the job Aquifer already holds.
 //
 // Every request the client sends is counted. A share of jobs carries a
 // 2 s target; those count as late if the answer arrives after it. The job
@@ -68,6 +71,16 @@
 //	BACKOFF_BASE    first backoff (default 200ms)
 //	BACKOFF_MAX     backoff cap (default 20s)
 //	TIMEOUT         per-attempt timeout (default 10s)
+//	PATIENCE        jobs workload: the caller gives up this long after the
+//	                job was created (default 0: never). No attempt runs
+//	                past it, and no retry starts after it. Work the front
+//	                door already holds may still run; the backend counts it.
+//	CALL            aquifer mode, jobs workload: "proxy" to call /proxy (see
+//	                above) instead of submitting to /jobs and waiting for a
+//	                webhook
+//	NO_KEY          1 to send a new idempotency key on every attempt, as a
+//	                caller with no stable job ID would (CALL=proxy); the
+//	                backend still sees the real job ID, so it counts repeats
 //	REPORT_URL      where to POST the final report; NAME is appended
 //	LISTEN          webhook listener address (default :8081)
 //	CONFIG_URL      if set, wait for a JSON object of these settings there
@@ -76,9 +89,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -153,7 +168,9 @@ type tally struct {
 type client struct {
 	mode, target, backendURL, publicURL string
 	workload                            string
-	enforce                             bool
+	enforce, noKey                      bool
+	call                                string
+	patience                            time.Duration
 	pool                                string
 	maxAttempts                         int
 	base, cap, timeout, aggressive      time.Duration
@@ -183,6 +200,9 @@ func main() {
 		backendURL:  os.Getenv("BACKEND_URL"),
 		pool:        os.Getenv("POOL"),
 		enforce:     os.Getenv("ENFORCE_DEADLINE") == "1",
+		noKey:       os.Getenv("NO_KEY") == "1",
+		call:        os.Getenv("CALL"),
+		patience:    envDur("PATIENCE", 0),
 		publicURL:   strings.TrimRight(os.Getenv("PUBLIC_URL"), "/"),
 		maxAttempts: envInt("MAX_ATTEMPTS", 6),
 		base:        envDur("BACKOFF_BASE", 200*time.Millisecond),
@@ -202,7 +222,8 @@ func main() {
 		c.mode = "aquifer"
 	}
 	// The do-it-yourself setups only change the bottom services (wild).
-	if c.mode == "envoy-idem" || c.mode == "envoy-queue" {
+	// envoy-max is Envoy with its limits sized for the capacity after scaling.
+	if c.mode == "envoy-idem" || c.mode == "envoy-queue" || c.mode == "envoy-max" {
 		c.mode = "envoy"
 	}
 	if c.mode != "envoy" && c.mode != "aquifer" {
@@ -625,6 +646,8 @@ func (c *client) run(j *job) bool {
 		res = c.viaServices(j)
 	case c.mode == "envoy":
 		res = c.viaEnvoy(j)
+	case c.call == "proxy":
+		res = c.viaProxy(j)
 	default:
 		res = c.viaAquifer(j)
 	}
@@ -652,6 +675,22 @@ func (c *client) run(j *job) bool {
 }
 
 func (c *client) viaEnvoy(j *job) result {
+	return c.retry(j, func(timeout time.Duration) (int, time.Duration, error) {
+		return c.post(j, c.target+"/work", nil, timeout)
+	})
+}
+
+// viaProxy runs the job through Aquifer's /proxy with the same retries as
+// viaEnvoy.
+func (c *client) viaProxy(j *job) result {
+	return c.retry(j, func(timeout time.Duration) (int, time.Duration, error) {
+		return c.proxy(j, timeout)
+	})
+}
+
+// retry sends the job until it succeeds, backing off between attempts, or
+// until MAX_ATTEMPTS, the job's enforced deadline or PATIENCE runs out.
+func (c *client) retry(j *job, send func(time.Duration) (int, time.Duration, error)) result {
 	for attempt := 1; ; attempt++ {
 		timeout := c.timeout
 		if c.enforce && !j.deadline.IsZero() {
@@ -660,7 +699,13 @@ func (c *client) viaEnvoy(j *job) result {
 				return result{why: "deadline"}
 			}
 		}
-		status, retryAfter, err := c.post(j, c.target+"/work", nil, timeout)
+		if c.patience > 0 {
+			timeout = min(timeout, c.patience-time.Since(j.created))
+			if timeout <= 0 {
+				return result{why: "gave_up"}
+			}
+		}
+		status, retryAfter, err := send(timeout)
 		if attempt == 1 {
 			c.firstAnswer(j)
 		}
@@ -680,9 +725,81 @@ func (c *client) viaEnvoy(j *job) result {
 			return result{why: why}
 		}
 		if !c.backoff(j, attempt, retryAfter) {
+			if c.patience > 0 {
+				return result{why: "gave_up"}
+			}
 			return result{why: "deadline"}
 		}
 	}
+}
+
+// proxy makes one /proxy attempt and reports it as a status code: 200 once
+// the job completed with the backend's 200, whether Aquifer ran it straight
+// away or held it and streamed the outcome.
+func (c *client) proxy(j *job, timeout time.Duration) (int, time.Duration, error) {
+	key := j.id
+	if c.noKey {
+		key = fmt.Sprintf("%s#%d", j.id, j.attempts)
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"user_id":        j.tenant,
+		"idempotent_key": key,
+		"url":            c.backendURL,
+		"method":         http.MethodPost,
+		"headers":        map[string]string{"X-Tenant": j.tenant, "X-Job-Id": j.id},
+		"max_retries":    -1,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.target+"/proxy", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant", j.tenant)
+	c.request(j.tenant)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode, retryAfter(resp.Header.Get("Retry-After")), nil
+	}
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		// The backend's own answer, or a repeat of a job already finished.
+		var out struct {
+			Status    string `json:"status"`
+			Duplicate bool   `json:"duplicate"`
+		}
+		json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
+		if out.Duplicate && out.Status != "completed" {
+			return 0, 0, fmt.Errorf("aquifer_%s", out.Status)
+		}
+		return http.StatusOK, 0, nil
+	}
+	// Held in Aquifer's queue: wait on its events for the outcome.
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	event := ""
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "event:"):
+			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:") && (event == "completed" || event == "failed"):
+			var out struct {
+				ResponseStatus int `json:"response_status"`
+			}
+			json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &out)
+			if event == "completed" && (out.ResponseStatus == 0 || out.ResponseStatus == http.StatusOK) {
+				return http.StatusOK, 0, nil
+			}
+			return 0, 0, fmt.Errorf("aquifer_%s", event)
+		}
+	}
+	if ctx.Err() != nil {
+		return 0, 0, ctx.Err()
+	}
+	return 0, 0, errors.New("stream_ended")
 }
 
 func (c *client) viaAquifer(j *job) result {
@@ -826,8 +943,8 @@ func (c *client) submit(body map[string]any) (int, time.Duration, string, error)
 
 // backoff sleeps before the next attempt: full jitter on an exponential
 // window, but never less than Retry-After; an aggressive tenant waits
-// AGGRESSIVE_DELAY instead. With ENFORCE_DEADLINE it returns false when the
-// job's deadline would pass first.
+// AGGRESSIVE_DELAY instead. It returns false when the job's enforced
+// deadline (ENFORCE_DEADLINE) or the caller's PATIENCE would run out first.
 func (c *client) backoff(j *job, attempt int, retryAfter time.Duration) bool {
 	window := min(c.cap, time.Duration(float64(c.base)*math.Pow(2, float64(min(attempt-1, 30)))))
 	d := max(time.Duration(rand.Float64()*float64(window)), retryAfter)
@@ -838,6 +955,10 @@ func (c *client) backoff(j *job, attempt int, retryAfter time.Duration) bool {
 		d = max(window, retryAfter)
 	}
 	if c.enforce && !j.deadline.IsZero() && time.Now().Add(d).After(j.deadline) {
+		j.attempts++
+		return false
+	}
+	if c.patience > 0 && time.Since(j.created)+d >= c.patience {
 		j.attempts++
 		return false
 	}
