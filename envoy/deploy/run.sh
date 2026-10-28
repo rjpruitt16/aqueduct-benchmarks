@@ -170,6 +170,7 @@ case "$REGIME" in
     ;;
   survival-smoke)
     PHASES=warm:1m:0.5,overload:4m:3,cool:3m:0.5
+    SCALE_DELAY=1
     CAPACITY_SCHEDULE=2m:32
     PATIENCE=2m
     ;;
