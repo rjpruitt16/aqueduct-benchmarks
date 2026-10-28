@@ -1,6 +1,6 @@
 # Results: Envoy or Aquifer in front of an overloaded service
 
-Fly, 2026-10-26 and 27. Backend and front door in `ord`, clients in `ord`, `iad`, `dfw`, `lhr` and `syd`, Envoy v1.39.3, Aquifer `630501d`. Raw data is in `results/`; the setup is in the [README](README.md).
+Fly, 2026-10-26 and 27. Backend and front door in `ord`, clients in `ord`, `iad`, `dfw`, `lhr` and `syd`, Envoy v1.39.3, Aquifer `630501d` (v0.15.1-20-g630501d, untagged) unless a section says otherwise. Raw data is in `results/`; the setup is in the [README](README.md).
 
 | Runs | Series | Harness image |
 |---|---|---|
@@ -10,6 +10,7 @@ Fly, 2026-10-26 and 27. Backend and front door in `ord`, clients in `ord`, `iad`
 | Chains, Envoy and Aquifer (3 each) | `chains` | `registry.fly.io/aqb-envoy-images:cd70070` |
 | Wild, Envoy and Aquifer (3 each) | `wild` | `registry.fly.io/aqb-envoy-images:504ffe1` |
 | Wild, Envoy with idempotency and Envoy with a queue (3 each), Envoy and Aquifer as a check (1 each) | `diy` | `registry.fly.io/aqb-envoy-images:a7e8d73` |
+| Wild, Aquifer v0.16.0 (`cfed721`) with the backend advertising totals (1) | `a16` | `registry.fly.io/aqb-envoy-images:ee64d11-a16` |
 
 **What this measures.** Work getting done under contention, with capacity that grows. It is not a fair test of instant responses: neither Envoy nor a queue answers instantly under contention, and Envoy is not designed for instant deadlines unless the service is over-provisioned. Interactive traffic belongs on a live connection (a WebSocket, a stream, or Aquifer's `/proxy`) to a backend with room to spare. The 2 s deadline is shown for completeness, not as a criterion.
 
@@ -170,7 +171,7 @@ Both new setups ran three rounds. Round 1 also ran plain Envoy and Aquifer as a 
 
 - **Idempotency alone recovered most of the gap.** With a result store and a lock in the bottom services, no job ran twice and the services completed 97% as many requests as Aquifer. This is more than the design predicted. The storm did not go away: each refusal still went back up the chain, so clients sent 1.7 requests per completion, the front door still saw 1.5–1.6 million requests (mostly Envoy's 429s), and clients spent 11–14 hours backing off per run. It also kept Envoy's shape on latency: large tenants got more than their even share and the fastest typical requests of any setup, while small tenants waited longest at the tail (p99 34–45 s).
 - **Idempotency plus a fair queue matched Aquifer and did slightly better.** It completed about 2% more requests, sent half as many requests to the front door (one per job, because the services never call it directly), and its latencies and per-tenant shares were close to Aquifer's in every row. Small tenants completed the same whatever their retry style. Like Aquifer, it pays for holding work with client timeouts on the large tenants: about 7,000 per run, almost all of them re-waits on a job already queued.
-- **Before the outage, the hand-built queue ran faster than Aquifer.** In minutes 17–19, with the backend allowing 8 in flight, it completed about 19.3 requests/s against Aquifer's 17.1 in the same round. After capacity doubled both ran at 30–33/s. Aquifer seems to leave some of the advertised concurrency unused at the lower limit; that is worth looking into in Aquifer.
+- **Before the outage, the hand-built queue ran faster than Aquifer.** In minutes 17–19, with the backend allowing 8 in flight, it completed about 19.3 requests/s against Aquifer's 17.1 in the same round. After capacity doubled both ran at 30–33/s. Aquifer seems to leave some of the advertised concurrency unused at the lower limit; that is worth looking into in Aquifer. (It was, see below.)
 - **Recovery from the outage.** In the first minute after the backend came back, the queue completed about 10 requests/s, Aquifer about 14 and Envoy with idempotency about 13; all three were back at their earlier rate the minute after. During and after the outage the queue held about 450 jobs, and it emptied within a minute of capacity doubling.
 
 What it costs to do it yourself:
@@ -186,6 +187,23 @@ Limits of this comparison:
 
 **What this says, simply.** Most of Aquifer's advantage in the wild regime is something a team can build: idempotency keys stop the repeated work, and a fair queue that follows the backend's limit stops the storm. Built that way, Envoy plus Redis plus a dispatcher matched Aquifer here and was slightly faster before the outage. The difference is what the team owns: two more machines and about 500 lines of code, against one service that does the same thing out of the box. Neither side's failure handling was tested here: no Redis, dispatcher or Aquifer restart happened in any run, so which one holds up better when something breaks is still open.
 
+### Follow-up: Aquifer v0.16.0
+
+The backend logs explained the gap. Up to v0.15, each of Aquifer's tenant queues followed `X-Aqueduct-Max-Concurrent` on its own, so the backend divided its 8 workers among the 15 queues and rounded up: 1 each, up to 15 in flight. On average 2 requests waited inside the backend while the shares of idle queues went unused. Aquifer v0.16.0 (rjpruitt16/aquifer#130) makes the headers the backend's totals and shares them round-robin across the queues. The backend now advertises its real totals (`ADVERTISE=total`).
+
+One round of Aquifer v0.16.0 under the same wild regime (`a16-aquifer-wild-1`):
+
+| | Aquifer `630501d` (diy round 1) | Aquifer v0.16.0 | Envoy + queue (3 rounds) |
+|---|---|---|---|
+| Client requests completed | 46,356 | 47,103 | 47,188–47,500 |
+| Minutes 17–20 (8 workers), completed per second | 17.2 | 18.1 | 19.2–19.4 |
+| …backend workers busy, requests waiting inside | 6.4, 1.0 | 7.5, 0.0 | 7.4–8.0, 0.0 |
+| Minutes 26–40 (16 workers), completed per second | 25.3 | 25.2 | 24.4–24.6 |
+| Repeats of work already done | 77–94 | 30 | 0 |
+| Small-tenant p99 | 9–11 s | 8.4–8.8 s | 9–11 s |
+
+Nothing waits inside the backend any more, and the whole run is level with the hand-built queue. Before the outage, the queue still does about 6% more backend work (38.9 against 36.2 executions per second in minutes 17–20), with its workers slightly busier. That remaining gap isn't explained yet. This is one round, so it is a check, not a series.
+
 ## What we can say
 
 - When the service reports its load and Aquifer follows it, Aquifer completes more work than Envoy, with fewer requests, no wasted backend work and complete fairness to small tenants. Individual jobs wait longer, because it holds work instead of refusing it.
@@ -193,4 +211,4 @@ Limits of this comparison:
 - When retries stack up across a chain of services, Envoy's refusals multiply at every hop and the backend spends more than half its time redoing work. Aquifer recognises a resend by its key and runs the job once, so the same backend completed about 2.2 times as many requests; the largest tenants paid for the even split with longer waits. That was Envoy as a bare proxy. With idempotency keys in Redis the services completed 97% as many requests as Aquifer with no repeated work, but the retry storm stayed. With a fair queue and a dispatcher as well, they matched Aquifer and did slightly better, at the cost of Redis, a dispatcher and about 500 lines of code to own.
 - A rate limit alone does not protect a service that slows down under load; it also needs a limit on requests in flight. Aquifer gets one from the backend's `X-Aqueduct-Max-Concurrent`, but its pools do not have one yet.
 
-Next: find out why Aquifer left some of the advertised concurrency unused at the lower limit in the do-it-yourself series, a per-member concurrency limit for Aquifer pools (needs a design), then the scale-out regime with that and `healthy_panic_threshold: 0` for Envoy, and Envoy changing under the measured deadline.
+Next: the remaining 6% before the outage in Aquifer v0.16.0, a per-member concurrency limit for Aquifer pools (needs a design), then the scale-out regime with that and `healthy_panic_threshold: 0` for Envoy, and Envoy changing under the measured deadline.
