@@ -775,7 +775,7 @@ func (c *client) pollAquifer(j *job) result {
 			err        error
 		)
 		if jobID == "" {
-			jobID, status, err = c.submitJob(j, min(c.timeout, left))
+			jobID, status, retryAfter, err = c.submitJob(j, min(c.timeout, left))
 		} else {
 			state, status, retryAfter, err = c.checkJob(j, jobID, min(c.timeout, left))
 		}
@@ -792,8 +792,8 @@ func (c *client) pollAquifer(j *job) result {
 			continue
 		case err == nil && (status == http.StatusOK || status == http.StatusCreated || status == http.StatusAccepted):
 			failures = 0
-			if state == "" {
-				// Just submitted: ask at once where it stands.
+			if state == "" && retryAfter == 0 {
+				// Just submitted, with no word on when: ask at once where it stands.
 				j.attempts++
 				continue
 			}
@@ -843,8 +843,9 @@ func (c *client) pace(j *job, d time.Duration) bool {
 	return true
 }
 
-// submitJob creates the job on /jobs, returning its ID.
-func (c *client) submitJob(j *job, timeout time.Duration) (string, int, error) {
+// submitJob creates the job on /jobs, returning its ID and when Aquifer
+// says to check on it.
+func (c *client) submitJob(j *job, timeout time.Duration) (string, int, time.Duration, error) {
 	raw, _ := json.Marshal(map[string]any{
 		"user_id":        j.tenant,
 		"idempotent_key": j.id,
@@ -861,7 +862,7 @@ func (c *client) submitJob(j *job, timeout time.Duration) (string, int, error) {
 	c.request(j.tenant)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", 0, err
+		return "", 0, 0, err
 	}
 	defer resp.Body.Close()
 	var out struct {
@@ -869,9 +870,9 @@ func (c *client) submitJob(j *job, timeout time.Duration) (string, int, error) {
 	}
 	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-		return "", resp.StatusCode, nil
+		return "", resp.StatusCode, serverWait(resp.Header), nil
 	}
-	return out.JobID, resp.StatusCode, nil
+	return out.JobID, resp.StatusCode, serverWait(resp.Header), nil
 }
 
 // checkJob asks Aquifer where a job stands: state is "ok" or "failed" once
