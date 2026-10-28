@@ -83,7 +83,9 @@ To separate them, the backend records when each job first finished and the clien
 
 Runs (`PART=client deploy/survival-series.sh`): Aquifer with the series' backoff client (`aquifer-ctl`, the control, rerun so it has the timestamps) and with its own client (`aquifer-hold`, `HOLD=1`: hold the stream up to a minute, reopen it at once with the same key, and back off up to 2 seconds, jittered, only after a refusal or a network error, honoring `Retry-After`), at D = 3 and 5, 2 rounds: 8 runs, about $4. Envoy keeps its client: jittered backoff is already its best.
 
-Aquifer's fairness policy is unchanged until these results are in. If the gap remains with the better client, the open choices are configured tenant weights (not weights from observed volume, which a retry flood would inflate) and deadline-aware ordering within each tenant's queue, both opt-in.
+Aquifer's fairness policy stays as it is: an equal turn per tenant, whatever its volume. A backend that wants some users to get more says so in the limits it advertises. A caller that needs an answer within a deadline belongs on a live connection, not in a queue.
+
+What ran instead: the client runs above found that most of the gap was Aquifer running out of file descriptors on Fly, one per held stream. They were rerun as the `fix` series (`PART=clients`): Aquifer with connections and held streams capped and ready estimates on (rjpruitt16/aquifer#133), with the backoff, hold and poll clients at D = 3, 5 and 10, 2 rounds each: 18 runs, about $9. Results are in [RESULTS.md](RESULTS.md#survival-capacity-arrives-late).
 
 ## Left for later
 

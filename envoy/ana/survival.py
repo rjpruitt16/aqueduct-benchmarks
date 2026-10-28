@@ -1,13 +1,21 @@
 """Summarize survival-regime runs: callers answered in time, work run, cost, and use of new capacity."""
-import glob, json, os, re, sys
+import gzip, glob, json, os, re, sys
+
+
+def openz(path):
+    """Opens path, or path.gz when the file was compressed for the repo."""
+    if not os.path.exists(path) and os.path.exists(path + ".gz"):
+        return gzip.open(path + ".gz", "rt")
+    return gzip.open(path, "rt") if path.endswith(".gz") else open(path)
+
 
 for run in sys.argv[1:]:
     info = dict(l.strip().split("=", 1) for l in open(os.path.join(run, "run.txt")) if "=" in l) if os.path.exists(os.path.join(run, "run.txt")) else {}
     tenants = {}
-    for f in sorted(glob.glob(run + "/clients/*.json")):
+    for f in sorted(glob.glob(run + "/clients/*.json*")):
         if os.path.basename(f).startswith("svc-"):
             continue
-        d = json.load(open(f))
+        d = json.load(openz(f))
         tenants.update(d["tenants"])
     off = sum(t["offered"] for t in tenants.values())
     done = sum(t["completed"] for t in tenants.values())

@@ -9,7 +9,14 @@ and when it ended come from the clients' job logs (JOB_LOG=1).
   finished late   the work finished after the deadline
   never ran       the backend never ran it
 """
-import glob, json, os, sys
+import gzip, glob, json, os, sys
+
+
+def openz(path):
+    """Opens path, or path.gz when the file was compressed for the repo."""
+    if not os.path.exists(path) and os.path.exists(path + ".gz"):
+        return gzip.open(path + ".gz", "rt")
+    return gzip.open(path, "rt") if path.endswith(".gz") else open(path)
 
 
 def dur_ms(s):
@@ -33,13 +40,13 @@ for run in sys.argv[1:]:
     info = dict(l.strip().split("=", 1) for l in open(os.path.join(run, "run.txt")) if "=" in l)
     patience = dur_ms(info["patience"])
     finished = {}
-    for line in open(os.path.join(run, "executions.txt")):
+    for line in openz(os.path.join(run, "executions.txt")):
         parts = line.split()
         if len(parts) == 2:
             finished.setdefault(parts[0], int(parts[1]))
     jobs = []
-    for f in sorted(glob.glob(run + "/clients/*.json")):
-        d = json.load(open(f))
+    for f in sorted(glob.glob(run + "/clients/*.json*")):
+        d = json.load(openz(f))
         # A job's ID is <client name>-<tenant>-<sequence>; tenants may hold "-".
         prefix = d["name"] + "-"
         jobs += [(j[0][len(prefix):].rsplit("-", 1)[0], *j) for j in d.get("jobs") or []]

@@ -1,0 +1,19 @@
+defaults:
+  rps: 2
+  max_concurrent: 1
+upstreams:
+  "<machine>:8080":
+    rps: 320
+    max_concurrent: 32
+  "<machine>:8081":
+    rps: 1000
+    max_concurrent: 64
+  "<machine>:8081":
+    rps: 1000
+    max_concurrent: 64
+  "<machine>:8081":
+    rps: 1000
+    max_concurrent: 64
+  "<machine>:8081":
+    rps: 1000
+    max_concurrent: 64
