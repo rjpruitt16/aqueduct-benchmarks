@@ -113,6 +113,7 @@ func main() {
 	if err := os.MkdirAll(filepath.Join(b.out, "clients"), 0o755); err != nil {
 		log.Fatal(err)
 	}
+	// One line per execution: the job's ID and when it finished, Unix ms.
 	execs, err := os.Create(filepath.Join(b.out, "executions.txt"))
 	if err != nil {
 		log.Fatal(err)
@@ -274,7 +275,7 @@ func (b *backend) work(w http.ResponseWriter, r *http.Request) {
 		if b.seen[job] > 1 {
 			t.Duplicates++
 		}
-		b.execs.WriteString(job + "\n")
+		fmt.Fprintf(b.execs, "%s %d\n", job, time.Now().UnixMilli())
 	}
 	if r.Context().Err() != nil {
 		t.Orphaned++

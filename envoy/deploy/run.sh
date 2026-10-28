@@ -29,6 +29,8 @@
 #                  the new capacity arrives (default 5)
 #   NO_KEY=1       survival: callers send a new idempotency key on every
 #                  attempt
+#   HOLD=1         survival, aquifer: callers hold the /proxy stream and
+#                  reconnect at once with the same key (Aquifer's own client)
 #
 # The survival regime asks how long a front door can hold out until new
 # capacity arrives. Independent jobs, the tenants below, and callers that
@@ -450,14 +452,14 @@ config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$
   --arg phases "$PHASES" --arg start "$START_AT" --arg report "http://$BACKEND:8080/report" \
   --arg pool "$POOL" --arg register "$REGISTER_URL" --arg workload "$WORKLOAD" \
   --arg api "$API" --arg bursts "$BURSTS" --arg outage "$OUTAGE" --arg redis "$REDIS_URL" \
-  --arg patience "$PATIENCE" --arg nokey "${NO_KEY:-}" \
+  --arg patience "$PATIENCE" --arg nokey "${NO_KEY:-}" --arg hold "${HOLD:-}" \
   '{MODE: $mode, TARGET: $target, BACKEND_URL: $backend, PHASES: $phases, START_AT: $start, REPORT_URL: $report}
    + (if $pool == "" then {} else {POOL: $pool, REGISTER_URL: $register} end)
    + (if $workload == "chains" then {WORKLOAD: "chains", MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", DRAIN: "60m"} else {} end)
    + (if $workload == "wild" then {WORKLOAD: "wild", TARGET: $api, FRONT_URL: $target, BURSTS: $bursts, OUTAGE: $outage,
         MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "15s", DRAIN: "60m"} else {} end)
    + (if $redis == "" then {} else {REDIS_URL: $redis} end)
-   + (if $patience == "" then {} else {PATIENCE: $patience, CALL: "proxy", NO_KEY: $nokey,
+   + (if $patience == "" then {} else {PATIENCE: $patience, CALL: "proxy", NO_KEY: $nokey, HOLD: $hold, JOB_LOG: "1",
         MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "10s", DRAIN: "30m"} end)')
 retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
   fail "could not publish the run's settings"
@@ -536,6 +538,7 @@ fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config
     echo "scale_delay_min=$SCALE_DELAY"
     echo "patience=$PATIENCE"
     echo "no_key=${NO_KEY:-0}"
+    echo "hold=${HOLD:-0}"
     echo "envoy_rps=$ENVOY_RPS"
     echo "tenant_rps=$TENANT_RPS"
   fi

@@ -65,6 +65,26 @@ Also: requests per job, repeats of work already done, latency (p50, p99) during 
 
 A run is 6 machines for about 40 minutes. `deploy/survival-series.sh` runs one round of two delays at a time (6 apps).
 
+## Follow-up: the client, or the scheduler?
+
+In round 1 at D = 3, Aquifer answered 78.0% of callers within 5 minutes and ran 99.2% of the work; envoy-max did 95.3% of both. Almost all of Aquifer's loss was the big tenant. Two explanations are open:
+
+- **The scheduler.** Equal turns give the big tenant, half the traffic, a sixth of the capacity until scaling, and its queue runs oldest first, including work whose caller has already gone.
+- **The client.** Aquifer's callers used Envoy's backoff: a 10-second stream, then a random sleep of up to a minute. A job that finishes during the sleep isn't seen until the caller wakes, and the caller gives up early if the next sleep would pass its deadline. With an idempotency key a retry only reattaches to the job Aquifer holds, so Aquifer's own client needs no backoff.
+
+To separate them, the backend records when each job first finished and the client logs when each job was created and when its caller got the answer or gave up (`JOB_LOG=1`). `ana/outcomes.py` sorts every job:
+
+| Bucket | Meaning |
+|---|---|
+| answered | the caller got the result before its deadline |
+| not retrieved | the work finished before the deadline, the caller didn't get it: the client |
+| finished late | the work finished after the deadline: scheduling or capacity |
+| never ran | the backend never ran it |
+
+Runs (`PART=client deploy/survival-series.sh`): Aquifer with the series' backoff client (`aquifer-ctl`, the control, rerun so it has the timestamps) and with its own client (`aquifer-hold`, `HOLD=1`: hold the stream up to a minute, reopen it at once with the same key, and back off up to 2 seconds, jittered, only after a refusal or a network error, honoring `Retry-After`), at D = 3 and 5, 2 rounds: 8 runs, about $4. Envoy keeps its client: jittered backoff is already its best.
+
+Aquifer's fairness policy is unchanged until these results are in. If the gap remains with the better client, the open choices are configured tenant weights (not weights from observed volume, which a retry flood would inflate) and deadline-aware ordering within each tenant's queue, both opt-in.
+
 ## Left for later
 
 - A backend that crashes under load, if a later setup can let it.

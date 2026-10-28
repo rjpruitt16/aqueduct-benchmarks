@@ -78,6 +78,13 @@
 //	CALL            aquifer mode, jobs workload: "proxy" to call /proxy (see
 //	                above) instead of submitting to /jobs and waiting for a
 //	                webhook
+//	HOLD            1 to call /proxy as Aquifer's own client would (CALL=proxy):
+//	                hold the stream for up to a minute at a time and reconnect
+//	                at once with the same key; back off (up to 2s, jittered)
+//	                only after a refusal or a network error, honoring
+//	                Retry-After. PATIENCE still applies.
+//	JOB_LOG         1 to add every job to the report as [id, created ms,
+//	                ended ms, outcome] (Unix ms; outcome "ok" or why it failed)
 //	NO_KEY          1 to send a new idempotency key on every attempt, as a
 //	                caller with no stable job ID would (CALL=proxy); the
 //	                backend still sees the real job ID, so it counts repeats
@@ -168,7 +175,7 @@ type tally struct {
 type client struct {
 	mode, target, backendURL, publicURL string
 	workload                            string
-	enforce, noKey                      bool
+	enforce, noKey, hold, jobLog        bool
 	call                                string
 	patience                            time.Duration
 	pool                                string
@@ -184,6 +191,7 @@ type client struct {
 	byID     map[string]*job
 	interval map[string]int
 	sent     map[string]int
+	jobs     [][4]any
 	open     atomic.Int64
 }
 
@@ -201,6 +209,8 @@ func main() {
 		pool:        os.Getenv("POOL"),
 		enforce:     os.Getenv("ENFORCE_DEADLINE") == "1",
 		noKey:       os.Getenv("NO_KEY") == "1",
+		hold:        os.Getenv("HOLD") == "1",
+		jobLog:      os.Getenv("JOB_LOG") == "1",
 		call:        os.Getenv("CALL"),
 		patience:    envDur("PATIENCE", 0),
 		publicURL:   strings.TrimRight(os.Getenv("PUBLIC_URL"), "/"),
@@ -347,6 +357,9 @@ func main() {
 
 	c.mu.Lock()
 	report := map[string]any{"name": name, "mode": c.mode, "open_at_end": c.open.Load(), "tenants": c.tallies, "intervals": intervals}
+	if c.jobLog {
+		report["jobs"] = c.jobs
+	}
 	for _, t := range c.tallies {
 		t.summarize()
 	}
@@ -646,6 +659,8 @@ func (c *client) run(j *job) bool {
 		res = c.viaServices(j)
 	case c.mode == "envoy":
 		res = c.viaEnvoy(j)
+	case c.call == "proxy" && c.hold:
+		res = c.holdProxy(j)
 	case c.call == "proxy":
 		res = c.viaProxy(j)
 	default:
@@ -655,6 +670,13 @@ func (c *client) run(j *job) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	t := c.tallies[j.tenant]
+	if c.jobLog {
+		outcome := "ok"
+		if !res.ok {
+			outcome = res.why
+		}
+		c.jobs = append(c.jobs, [4]any{j.id, j.created.UnixMilli(), time.Now().UnixMilli(), outcome})
+	}
 	if res.ok {
 		t.Completed++
 		c.interval[j.tenant]++
@@ -686,6 +708,48 @@ func (c *client) viaProxy(j *job) result {
 	return c.retry(j, func(timeout time.Duration) (int, time.Duration, error) {
 		return c.proxy(j, timeout)
 	})
+}
+
+// holdProxy waits on /proxy the way Aquifer's own client would: a retry with
+// the same key only reattaches to the job Aquifer holds, so it costs the
+// backend nothing and needs no backoff. Each stream is held for up to a
+// minute, then reopened at once; only a refusal or a network error waits,
+// briefly and jittered, so a failing connection doesn't spin.
+func (c *client) holdProxy(j *job) result {
+	failures := 0
+	for attempt := 1; ; attempt++ {
+		left := c.patience - time.Since(j.created)
+		if left <= 0 {
+			return result{why: "gave_up"}
+		}
+		status, retryAfter, err := c.proxy(j, min(time.Minute, left))
+		if attempt == 1 {
+			c.firstAnswer(j)
+		}
+		if err == nil && status == http.StatusOK {
+			return result{ok: true}
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Held the whole stream without an outcome: reopen it now.
+			failures = 0
+			j.attempts++
+			continue
+		}
+		if err == nil && (status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable) {
+			c.refused(j)
+		}
+		failures++
+		window := min(2*time.Second, time.Duration(float64(c.base)*math.Pow(2, float64(min(failures-1, 30)))))
+		d := max(time.Duration(rand.Float64()*float64(window)), retryAfter)
+		if c.styles[j.tenant] == "aggressive" {
+			d = c.aggressive
+		}
+		if time.Since(j.created)+d >= c.patience {
+			j.attempts++
+			return result{why: "gave_up"}
+		}
+		c.wait(j, d)
+	}
 }
 
 // retry sends the job until it succeeds, backing off between attempts, or

@@ -4,12 +4,17 @@
 # Aquifer's two variants at a delay of 5 minutes, both rounds side by side.
 # Waits for each batch before starting the next.
 #
+# PART=client instead runs the client comparison: Aquifer with the series'
+# backoff client (the control) and with its own client (HOLD=1), at delays of
+# 3 and 5 minutes, one round at a time.
+#
 # Usage: deploy/survival-series.sh <series-name>   (FLY_ORG and IMAGE as for run.sh)
 #
 #   ROUNDS    default 2
 #   DELAYS    default "1 3 5 10", run in pairs
 #   SETUPS    default "envoy envoy-max aquifer"
 #   VARIANTS  0 to skip the variants
+#   PART      main (default) or client
 set -u
 SERIES=${1:?usage: survival-series.sh <series-name>}
 ROUNDS=${ROUNDS:-2}
@@ -31,6 +36,24 @@ batch_done() {
   wait
   for f in "$@"; do printf '%s: %s\n' "$f" "$(tail -1 "logs/$f.log")"; done
 }
+
+if [ "${PART:-main}" = client ]; then
+  r=1
+  while [ "$r" -le "$ROUNDS" ]; do
+    names=""
+    for d in 3 5; do
+      one "$SERIES-aquifer-ctl-d$d-$r" aquifer SCALE_DELAY="$d"
+      one "$SERIES-aquifer-hold-d$d-$r" aquifer SCALE_DELAY="$d" HOLD=1
+      names="$names $SERIES-aquifer-ctl-d$d-$r $SERIES-aquifer-hold-d$d-$r"
+    done
+    echo "== client round $r $(date -u +%TZ)"
+    # shellcheck disable=SC2086
+    batch_done $names
+    r=$((r + 1))
+  done
+  echo "== series done $(date -u +%TZ)"
+  exit 0
+fi
 
 r=1
 while [ "$r" -le "$ROUNDS" ]; do
