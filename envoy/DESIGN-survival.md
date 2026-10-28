@@ -87,6 +87,10 @@ Aquifer's fairness policy stays as it is: an equal turn per tenant, whatever its
 
 What ran instead: the client runs above found that most of the gap was Aquifer running out of file descriptors on Fly, one per held stream. They were rerun as the `fix` series (`PART=clients`): Aquifer with connections and held streams capped and ready estimates on (rjpruitt16/aquifer#133), with the backoff, hold and poll clients at D = 3, 5 and 10, 2 rounds each: 18 runs, about $9. Results are in [RESULTS.md](RESULTS.md#survival-capacity-arrives-late).
 
+## Follow-up: callers that retry until done
+
+Callers in the wild don't give up after a fixed 5 minutes; they retry until the work is done. So the series was rerun that way (`PART=unbounded`, `UNBOUNDED=1`, which sets `PATIENCE=0`): envoy-max against Aquifer with the hold client, at D = 3, 5 and 10, two rounds, 12 runs, about $7. Every caller keeps its retry style and never gives up; each run waits up to 60 minutes for the last job. Measured: jobs completed, time from creating each job to its caller having the result (median, p99, longest, per tenant), when the overload's backlog cleared, requests per job, and repeated work. These are the headline survival results; the 5-minute runs are kept as the case of callers with a fixed patience.
+
 ## Left for later
 
 - A backend that crashes under load, if a later setup can let it.

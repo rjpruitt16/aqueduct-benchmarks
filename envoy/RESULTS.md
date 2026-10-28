@@ -13,6 +13,7 @@ Fly, 2026-10-26 and 27. Backend and front door in `ord`, clients in `ord`, `iad`
 | Wild, Aquifer v0.16.0 (`cfed721`) with the backend advertising totals (1) | `a16` | `registry.fly.io/aqb-envoy-images:ee64d11-a16` |
 | Survival, Envoy, Envoy with limits for after scaling, Aquifer `cfed721` (2 each, some 1) | `surv` | `registry.fly.io/aqb-envoy-images:1a3d5f7-surv` |
 | Survival, Aquifer `e91e321` with three clients (2 each) | `fix` | `registry.fly.io/aqb-envoy-images:226f601-fix` |
+| Survival with callers that retry until done, envoy-max and Aquifer `e91e321` (2 each) | `unb` | `registry.fly.io/aqb-envoy-images:06140a0-unb` |
 
 **What this measures.** Work getting done under contention, with capacity that grows. It is not a fair test of instant responses: neither Envoy nor a queue answers instantly under contention, and Envoy is not designed for instant deadlines unless the service is over-provisioned. Interactive traffic belongs on a live connection (a WebSocket, a stream, or Aquifer's `/proxy`) to a backend with room to spare. The 2 s deadline is shown for completeness, not as a criterion.
 
@@ -208,7 +209,7 @@ Nothing waits inside the backend any more, and the whole run is level with the h
 
 ## Survival: capacity arrives late
 
-Traffic runs at three times what the backend can do for 15 minutes. Capacity goes from 8 workers to 32 some minutes into the overload (D = 1, 3, 5 or 10), the way an autoscaler or a person catches up. Six tenants share the backend: `big` sends half the traffic, `medium` a quarter, and four small tenants the rest, from `ord`, `iad`, `dfw` and `lhr`. `small-4` is aggressive: it retries every 100 ms and ignores `Retry-After`. Each caller gives up on a job 5 minutes after creating it. See [DESIGN-survival.md](DESIGN-survival.md) for the full setup.
+Traffic runs at three times what the backend can do for 15 minutes. Capacity goes from 8 workers to 32 some minutes into the overload (D = 1, 3, 5 or 10), the way an autoscaler or a person catches up. Six tenants share the backend: `big` sends half the traffic, `medium` a quarter, and four small tenants the rest, from `ord`, `iad`, `dfw` and `lhr`. `small-4` is aggressive: it retries every 100 ms and ignores `Retry-After`. See [DESIGN-survival.md](DESIGN-survival.md) for the full setup.
 
 Three front doors:
 
@@ -216,16 +217,54 @@ Three front doors:
 - `envoy-max`: the same config with limits sized for the capacity after scaling, which let the overload through until then.
 - `aquifer`: v0.16.0, following the backend's advertised totals.
 
-**What this measures.** Two different things, reported side by side:
+Two kinds of callers:
 
-- **Ran at all:** did the work get done? This is what Aquifer is for. A job whose caller stopped waiting still runs, and its result is kept and sent to its webhook.
-- **Answered within 5 minutes:** did a caller that kept waiting get its answer? This models a synchronous caller with Envoy's client. A caller that needs an answer in seconds belongs on a live connection to a backend with room to spare, not in a queue.
+- **Callers that retry until their job is done.** This is how services, SDKs and agents behave in the wild: some retry politely, some aggressively, and none stop at a fixed deadline. These are the headline results.
+- **Callers that give up 5 minutes after creating a job.** The series was first run this way. It measures how many callers with a fixed patience got their answer, and how much work ran at all. It is the worst case for a queue: Aquifer runs every job, but a caller that has stopped asking never collects the result.
 
-The 5-minute limit is a choice this harness makes, not how callers usually behave. Services, SDKs and agents in the wild retry until the work is done. Some retry politely, some aggressively, and none of them stop at a fixed deadline. The [chains series](#chains-nothing-is-given-up-everyone-retries-until-it-works) measured that case: Envoy needed 3.5 requests per job, Aquifer 1.0, for slightly more work done. With callers like that here, every job Aquifer ran would have been collected by its caller. Envoy's callers would have kept retrying until capacity let them through. So read "answered within 5 minutes" as the worst case for a queue, not the expected one.
+Runs left out: `surv-aquifer-d3-2`, `surv-aquifer-d5-2` and `surv-envoy-max-d5-2` failed in setup (Fly API timeouts) and were not rerun. `unb-envoy-max-d3-2` failed in setup the same way and was rerun.
 
-Runs left out: `surv-aquifer-d3-2`, `surv-aquifer-d5-2` and `surv-envoy-max-d5-2` failed in setup (Fly API timeouts) and were not rerun.
+### Callers that retry until done
 
-### The first series, and what was wrong with it
+envoy-max, with limits sized for the capacity after scaling, against Aquifer `e91e321` with the hold client, at D = 3, 5 and 10, two rounds each. Callers keep the same retry styles as before (Envoy's: jittered exponential backoff up to 60 s, honoring `Retry-After`; Aquifer's: hold the stream and come back when told), but never give up. Time to result runs from creating the job to the caller having the result. "Backlog cleared" is when the last job offered during the overload got its result, counted from the start of the overload.
+
+| D | | envoy-max | Aquifer (hold) |
+|---|---|---|---|
+| 3 min | Jobs completed | 100% | 100% |
+| | Time to result, median | **0.5 s** | 14–18 s |
+| | Time to result, p99 | 612 s | **182–185 s** |
+| | Longest wait | 935–942 s | **182–187 s** |
+| | Backlog cleared | 15.9–16.0 min | **15.0 min** |
+| | Requests per job (polite) | 6.2–6.3 (5.6) | **2.0–2.1 (1.9–2.0)** |
+| 5 min | Jobs completed | 100% | 100% |
+| | Time to result, median | **3.4–3.6 s** | 112–120 s |
+| | Time to result, p99 | 877–878 s | **314–322 s** |
+| | Longest wait | 1,088–1,093 s | **316–324 s** |
+| | Backlog cleared | 18.8–18.9 min | **16.8–16.9 min** |
+| | Requests per job (polite) | 12.4–13.0 (9.3) | **4.1–4.5 (3.3)** |
+| 10 min | Jobs completed | 100% | 100% |
+| | Time to result, median | **203–208 s** | 386–391 s |
+| | Time to result, p99 | 1,212–1,213 s | **639–645 s** |
+| | Longest wait | 1,435–1,437 s | **645–660 s** |
+| | Backlog cleared | 24.1–24.2 min | **21.4 min** |
+| | Requests per job (polite) | 23.6–28.4 (17.6–17.7) | **13.6–14.4 (6.7–6.8)** |
+
+Neither side repeated any work, and no job was left open.
+
+- **Both finish everything.** With callers that don't give up, nothing is lost on either side. What differs is who waits, how long, and how much traffic it takes.
+- **Aquifer bounds the wait.** Its slowest callers waited a fifth to a half as long: about 3 minutes against 15–16 at D = 3, about 11 against 24 at D = 10. It serves jobs in the order they arrived, an equal turn per tenant, so no caller is left behind for long. The polite small tenants' p99 at D = 3 was 29–47 s against 200–212 s; at D = 10, 182–189 s against 606–623 s.
+- **Envoy is faster for the typical caller.** A request that Envoy lets through is answered at once, so its median is far lower: 0.5 s against 14–18 s at D = 3. The cost lands on the callers it refuses: they back off, retry and back off again, and the unlucky ones wait 15–24 minutes. Under Envoy, who waits is luck; under Aquifer, it's place in line.
+- **Aquifer cleared the backlog 1–3 minutes sooner,** with about a third of the requests per job from polite tenants (a third to three fifths counting `small-4`). A plausible cause: Envoy's callers asleep in backoff, sometimes for up to a minute, leave capacity unused after it arrives; this wasn't checked separately.
+- **The big tenant waits longest under both,** and less under Aquifer at the tail (p99 182–186 s against 692–695 s at D = 3, 640–649 s against 1,269–1,271 s at D = 10), but more at the median (91–94 s against 4.2 s at D = 3), because an equal turn gives it less than half the backend while every tenant is busy.
+
+Envoy's callers kept the 60 s backoff cap from every series; a shorter cap would trade more requests for shorter waits, and is untested. Raw data is in `results/unb-*`; `ana/unbounded.py` prints these numbers.
+
+### Callers that give up after 5 minutes: the first series
+
+In this part each caller gives up on a job 5 minutes after creating it. Two things are measured side by side:
+
+- **Ran at all:** did the work get done? A job whose caller stopped waiting still runs in Aquifer, and its result is kept and sent to its webhook.
+- **Answered within 5 minutes:** did the caller get its answer before giving up?
 
 | D | `envoy`: ran = answered | `envoy-max`: ran = answered | Aquifer `cfed721`: ran | answered |
 |---|---|---|---|---|
@@ -240,7 +279,7 @@ These Aquifer numbers aren't a fair picture of Aquifer. It held one connection o
 
 The client was also wrong for Aquifer. It was Envoy's best case: 10 s per try, then a jittered backoff of up to a minute. Against Aquifer that only leaves a caller asleep while its result waits.
 
-### Aquifer with the descriptor fix and its own clients
+### Callers that give up after 5 minutes: the descriptor fix and Aquifer's own clients
 
 Aquifer `e91e321` (rjpruitt16/aquifer#133) caps connections at three quarters of the open file limit and held streams at half. It also estimates when each job will be ready (`AQUIFER_READY_ESTIMATES=true`). A caller whose job is more than 30 s away is told when to come back instead of being held on a connection. Three clients, each with the job's ID as its idempotency key:
 
@@ -280,7 +319,7 @@ Effort was not even. Aquifer got a fix, a flag that is off by default (`AQUIFER_
 
 Raw data for both series is in `results/surv-*` and `results/fix-*`. Executions and the larger client logs are gzipped; the scripts in `ana/` read them as they are.
 
-**What this says, simply.** Aquifer can't be called like Envoy. With jittered backoff, callers sleep through results that are already waiting. And holding one connection per waiting caller ran it out of file descriptors on Fly, which made the first series look worse than Aquifer is. With the descriptor fix and clients that come back when Aquifer says, it answered every caller in time when capacity came within 3 minutes, and about as many as Envoy at 5. It ran all the work at every delay, with fewer requests per job than Envoy sized for the capacity it would get. When capacity is 10 minutes away, Envoy answers more of the callers who gave themselves only 5 minutes, and Aquifer does all the work and keeps every result for the callers who come back. Most of Aquifer's advantage here is what any queue behind the proxy gives: work that isn't lost when the proxy refuses it. That points to running the two together, with Envoy at the edge and Aquifer holding the work behind it. That setup hasn't been measured yet.
+**What this says, simply.** When callers retry until the work is done, as they do in the wild, both front doors finish everything. Aquifer does it with about a third of the requests from polite callers, clears the backlog sooner, and caps the worst wait at a fifth to a half of Envoy's, while Envoy gives most callers a faster answer and leaves the rest waiting much longer. When callers give up after a fixed time, Aquifer still runs all the work, but only the callers who come back collect it. And Aquifer can't be called like Envoy. With jittered backoff, callers sleep through results that are already waiting. And holding one connection per waiting caller ran it out of file descriptors on Fly, which made the first series look worse than Aquifer is. With the descriptor fix and clients that come back when Aquifer says, it answered every caller in time when capacity came within 3 minutes, and about as many as Envoy at 5. It ran all the work at every delay, with fewer requests per job than Envoy sized for the capacity it would get. When capacity is 10 minutes away, Envoy answers more of the callers who gave themselves only 5 minutes, and Aquifer does all the work and keeps every result for the callers who come back. Most of Aquifer's advantage here is what any queue behind the proxy gives: work that isn't lost when the proxy refuses it. That points to running the two together, with Envoy at the edge and Aquifer holding the work behind it. That setup hasn't been measured yet.
 
 ## What we can say
 
@@ -288,6 +327,7 @@ Raw data for both series is in `results/surv-*` and `results/fix-*`. Executions 
 - When callers retry until their work is done, Envoy's refusals turn into retries: three and a half requests per job, with capacity going to the tenants that retry hardest. Aquifer did slightly more work with one request per job and gave same-size tenants the same share and latency, whatever their region or retry style. The cost is that a much bigger tenant gets an even split rather than the larger share it can grab by volume.
 - When retries stack up across a chain of services, Envoy's refusals multiply at every hop and the backend spends more than half its time redoing work. Aquifer recognises a resend by its key and runs the job once, so the same backend completed about 2.2 times as many requests; the largest tenants paid for the even split with longer waits. That was Envoy as a bare proxy. With idempotency keys in Redis the services completed 97% as many requests as Aquifer with no repeated work, but the retry storm stayed. With a fair queue and a dispatcher as well, they matched Aquifer and did slightly better, at the cost of Redis, a dispatcher and about 500 lines of code to own.
 - A rate limit alone does not protect a service that slows down under load; it also needs a limit on requests in flight. Aquifer gets one from the backend's `X-Aqueduct-Max-Concurrent`, but its pools do not have one yet.
-- When capacity arrives late, Aquifer runs all the work, whenever capacity comes. Callers still waiting get their answer only if they come back when Aquifer tells them to, not on a backoff timer. With that, and with connections capped below the open file limit, it answered every caller when capacity came within 3 minutes, and about as many as envoy-max at 5. At 10 minutes envoy-max answered more of the callers that gave up after 5 minutes, and Aquifer finished all the work, including theirs. Callers that retry until the work is done, as in the chains series, would collect all of it.
+- When capacity arrives late and callers retry until the work is done, both finish everything. Aquifer needed about a third of the requests from polite callers, cleared the backlog 1–3 minutes sooner and cut the longest wait to a fifth to a half of Envoy's (about 11 minutes against 24 with capacity 10 minutes late). Envoy answered the typical caller faster, and left the unlucky ones waiting much longer.
+- When capacity arrives late and callers give up after 5 minutes, Aquifer runs all the work, whenever capacity comes. Callers still waiting get their answer only if they come back when Aquifer tells them to, not on a backoff timer. With that, and with connections capped below the open file limit, it answered every caller when capacity came within 3 minutes, and about as many as envoy-max at 5. At 10 minutes envoy-max answered more of the callers that gave up after 5 minutes, and Aquifer finished all the work, including theirs. Callers that retry until the work is done, as in the chains series, would collect all of it.
 
 Next: estimates that keep up when capacity changes (rjpruitt16/aquifer#133), the remaining 6% before the outage in Aquifer v0.16.0, a per-member concurrency limit for Aquifer pools (needs a design), then the scale-out regime with that and `healthy_panic_threshold: 0` for Envoy, and Envoy changing under the measured deadline.

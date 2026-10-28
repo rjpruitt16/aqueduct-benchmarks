@@ -17,7 +17,8 @@ Envoy and Aquifer do different jobs. Envoy routes and refuses: when the backend 
 
 - **When retries stack up across services, the work isn't repeated.** With four services each retrying 3 times, the backend behind Envoy spent 55–58% of its executions redoing work it had already done. Behind Aquifer, about 0.1%. The same backend completed about 2.2 times as many requests.
 - **When callers retry until their work is done, they need one request per job.** Envoy needed 3.5 requests per job and gave more capacity to the tenants that retried hardest. Aquifer needed 1.0, and same-size tenants got the same share whatever their retry style or region.
-- **When capacity arrives late, no work is lost.** Aquifer ran 100% of the jobs at every delay. Envoy, with limits sized for the capacity after scaling, ran 95%, 88% and 67% as capacity arrived 3, 5 and 10 minutes into the overload.
+- **When capacity arrives late and callers retry until done, nobody waits forever.** Both Envoy and Aquifer finished every job. Aquifer needed about a third of the requests from polite callers, cleared the backlog 1–3 minutes sooner, and cut the longest wait to a fifth to a half of Envoy's: about 11 minutes against 24 with capacity 10 minutes late. Envoy answered the typical caller faster; its refused callers waited much longer.
+- **When callers give up after a fixed time, no work is lost.** Aquifer ran 100% of the jobs at every delay. Envoy, with limits sized for the capacity after scaling, ran 95%, 88% and 67% as capacity arrived 3, 5 and 10 minutes into the overload.
 - **Callers should come back when Aquifer says, not on a backoff timer.** A caller using jittered exponential backoff slept through 4–5% of results that were ready in time. Callers that held the stream, or polled when Aquifer told them to, missed none.
 
 Where it doesn't help, or the comparison is limited:
