@@ -85,5 +85,9 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   if [ -n "$alive" ]; then
     for p in $(pgrep -f "run.sh [BCD] $NAME\$"); do act kill "$p"; done
   fi
-  act fly apps destroy "$APP" -y >/dev/null 2>&1 && echo "$NAME: app destroyed"
+  if [ "${DRY_RUN:-}" = 1 ]; then
+    echo "  (dry run) would destroy $APP"
+  else
+    fly apps destroy "$APP" -y >/dev/null 2>&1 && echo "$NAME: app destroyed"
+  fi
 done

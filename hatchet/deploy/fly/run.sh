@@ -141,15 +141,33 @@ volume() {
   echo "$vid"
 }
 
+# Fly's API times out now and then. retry repeats a call that is safe to
+# repeat; create_app checks whether a timed-out create went through.
+retry() {
+  for try in 1 2 3 4; do
+    "$@" && return 0
+    sleep 10
+  done
+  return 1
+}
+create_app() {
+  for try in 1 2 3 4; do
+    fly apps create "$APP" --org "$FLY_ORG" >/dev/null && return 0
+    sleep 10
+    fly apps list --json 2>/dev/null | jq -e --arg a "$APP" 'any(.[]; .Name == $a)' >/dev/null && return 0
+  done
+  return 1
+}
+
 echo "== creating $APP in $FLY_ORG/$REGION ($CONFIG)"
-fly apps create "$APP" --org "$FLY_ORG" >/dev/null
+create_app || fail "could not create $APP"
 
 # Hatchet's keys, generated locally and stored as app secrets.
 keys=$(mktemp -d)
 docker run --rm -v "$keys:/keys" ghcr.io/hatchet-dev/hatchet/hatchet-admin:$HATCHET \
   /hatchet/hatchet-admin keyset create-local-keys --key-dir /keys >/dev/null
 PGPW=$(openssl rand -hex 16)
-fly secrets set -a "$APP" --stage \
+retry fly secrets set -a "$APP" --stage \
   SERVER_ENCRYPTION_MASTER_KEYSET="$(cat "$keys/master.key")" \
   SERVER_ENCRYPTION_JWT_PRIVATE_KEYSET="$(cat "$keys/private_ec256.key")" \
   SERVER_ENCRYPTION_JWT_PUBLIC_KEYSET="$(cat "$keys/public_ec256.key")" \
@@ -287,8 +305,8 @@ set -- -e ROLE=driver -e HOLD=1 -e OUT=/out -e HATCHET_API="$API" -e HATCHET_CLI
 if [ "$CONFIG" = C ]; then
   set -- "$@" -e AQUIFER_URL="http://$AQUIFER_HOST:8080" -e PUBLIC_URL="http://$DRIVER_HOST:8080"
 fi
-fly machine update "$(machine_id driver)" -a "$APP" -y --skip-start "$@" >/dev/null
-fly machine start "$(machine_id driver)" -a "$APP" >/dev/null
+retry fly machine update "$(machine_id driver)" -a "$APP" -y --skip-start "$@" >/dev/null || fail "could not configure the driver"
+retry fly machine start "$(machine_id driver)" -a "$APP" >/dev/null || fail "could not start the driver"
 started=$(date -u +%FT%TZ)
 started_s=$(date +%s)
 echo "   started $started; waiting for the driver to finish"
