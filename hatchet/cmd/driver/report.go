@@ -120,7 +120,23 @@ type tenantTotal struct {
 	// with Aquifer, the wait in Aquifer plus the webhook delivering
 	// Hatchet's response, so a slow webhook shows up here too.
 	ToRunIDP99ms float64 `json:"to_run_id_p99_ms"`
+	ToRunIDP50ms float64 `json:"to_run_id_p50_ms"`
 	AvgAttempts  float64 `json:"avg_attempts"`
+	// AcceptP50ms and AcceptP99ms are the time from first offer to the first
+	// acceptance (Hatchet's answer to the trigger in B and D; Aquifer's 201
+	// in C), by the phase the document was offered in. Not completion: see
+	// p50_ms_by_phase for that.
+	AcceptP50ms map[string]float64 `json:"accept_p50_ms_by_phase"`
+	AcceptP99ms map[string]float64 `json:"accept_p99_ms_by_phase"`
+	// Retries counts the producer's attempts after the first, over every
+	// finished document; RetriedDocuments those with any retry.
+	Retries          int `json:"retries"`
+	RetriedDocuments int `json:"retried_documents"`
+	// BackoffSeconds is the producer's total time waiting between attempts;
+	// the p50 and p99 are per document, by phase offered.
+	BackoffSeconds float64            `json:"backoff_seconds"`
+	BackoffP50ms   map[string]float64 `json:"backoff_p50_ms_by_phase"`
+	BackoffP99ms   map[string]float64 `json:"backoff_p99_ms_by_phase"`
 }
 
 func buildReport(l *ledger, phases []phase, start, end time.Time) report {
@@ -146,15 +162,39 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	completions := map[string][]time.Time{}
 	attempts := map[string][2]float64{}
 	toHatchet := map[string][]float64{}
+	accept := map[string]map[string][]float64{}
+	backoff := map[string]map[string][]float64{}
 	served, demand := map[string]float64{}, map[string]float64{}
+	newTotal := func() *tenantTotal {
+		return &tenantTotal{Offered: map[string]int{}, Outcomes: map[string]int{}, P50ms: map[string]float64{}, P99ms: map[string]float64{},
+			AcceptP50ms: map[string]float64{}, AcceptP99ms: map[string]float64{}, BackoffP50ms: map[string]float64{}, BackoffP99ms: map[string]float64{}}
+	}
+	addPhased := func(m map[string]map[string][]float64, tenant, ph string, v float64) {
+		if m[tenant] == nil {
+			m[tenant] = map[string][]float64{}
+		}
+		m[tenant][ph] = append(m[tenant][ph], v)
+		if overload(ph) {
+			m[tenant]["overload"] = append(m[tenant]["overload"], v)
+		}
+	}
 	for _, d := range all {
 		tt := rep.Tenants[d.tenant]
 		if tt == nil {
-			tt = &tenantTotal{Offered: map[string]int{}, Outcomes: map[string]int{}, P50ms: map[string]float64{}, P99ms: map[string]float64{}}
+			tt = newTotal()
 			rep.Tenants[d.tenant] = tt
 			lat[d.tenant] = map[string][]float64{}
 		}
 		ph := phaseOf(d.offered)
+		if !d.accepted.IsZero() {
+			addPhased(accept, d.tenant, ph, ms(d.accepted.Sub(d.offered)))
+		}
+		addPhased(backoff, d.tenant, ph, ms(d.backoff))
+		tt.BackoffSeconds += d.backoff.Seconds()
+		if d.attempts > 1 {
+			tt.Retries += d.attempts - 1
+			tt.RetriedDocuments++
+		}
 		tt.Offered[ph]++
 		tt.Outcomes[d.outcome]++
 		rep.Totals[d.outcome]++
@@ -180,7 +220,7 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	for _, d := range open {
 		tt := rep.Tenants[d.tenant]
 		if tt == nil {
-			tt = &tenantTotal{Offered: map[string]int{}, Outcomes: map[string]int{}, P50ms: map[string]float64{}, P99ms: map[string]float64{}}
+			tt = newTotal()
 			rep.Tenants[d.tenant] = tt
 			lat[d.tenant] = map[string][]float64{}
 		}
@@ -204,6 +244,13 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 		}
 		tt.LongestGapSeconds = longestGap(completions[name], windows)
 		tt.ToRunIDP99ms = percentile(toHatchet[name], 0.99)
+		tt.ToRunIDP50ms = percentile(toHatchet[name], 0.50)
+		for ph, xs := range accept[name] {
+			tt.AcceptP50ms[ph], tt.AcceptP99ms[ph] = percentile(xs, 0.50), percentile(xs, 0.99)
+		}
+		for ph, xs := range backoff[name] {
+			tt.BackoffP50ms[ph], tt.BackoffP99ms[ph] = percentile(xs, 0.50), percentile(xs, 0.99)
+		}
 		if a := attempts[name]; a[1] > 0 {
 			tt.AvgAttempts = a[0] / a[1]
 		}

@@ -258,6 +258,7 @@ func (r *run) submitLoop(ctx context.Context, queue <-chan *doc) {
 		}
 		in := pipeline.Document{DocID: d.id, Tenant: d.tenant, Pages: pages}
 		backoff := time.Second
+		var waited time.Duration // time spent in backoff between attempts
 		for attempt := 1; ; attempt++ {
 			if ctx.Err() != nil {
 				return
@@ -266,19 +267,20 @@ func (r *run) submitLoop(ctx context.Context, queue <-chan *doc) {
 			if r.aq != nil {
 				var jobID string
 				if jobID, err = r.aq.submit(ctx, in); err == nil {
-					r.l.acceptByAquifer(d.id, jobID, attempt, time.Now())
+					r.l.acceptByAquifer(d.id, jobID, attempt, waited, time.Now())
 					break
 				}
 			} else {
 				var runID string
 				if runID, err = r.h.trigger(ctx, in); err == nil {
-					r.l.accept(d.id, runID, attempt, time.Now())
+					r.l.accept(d.id, runID, attempt, waited, time.Now())
 					break
 				}
 			}
 			retryable, ok := err.(*errRetryable)
 			if !ok || attempt >= r.maxAttempts {
 				log.Printf("rejected %s after %d attempt(s): %v", d.id, attempt, err)
+				r.l.reject(d.id, attempt, waited)
 				r.l.finish(d.id, outcomeRejected, time.Now())
 				break
 			}
@@ -287,11 +289,13 @@ func (r *run) submitLoop(ctx context.Context, queue <-chan *doc) {
 			if retryable.retryAfter > wait {
 				wait = retryable.retryAfter
 			}
+			slept := time.Now()
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(wait):
 			}
+			waited += time.Since(slept)
 			if backoff < 30*time.Second {
 				backoff *= 2
 			}

@@ -31,7 +31,10 @@ type doc struct {
 	jobID     string    // Aquifer's job ID (C0, C)
 	triggered time.Time // when Hatchet accepted it; equals accepted without Aquifer
 	attempts  int
-	outcome   string
+	// backoff is the time the producer spent waiting between refused
+	// attempts before the document was accepted or rejected.
+	backoff time.Duration
+	outcome string
 	// lastPolled spaces out status polls for this document.
 	lastPolled time.Time
 }
@@ -53,10 +56,12 @@ type ledger struct {
 type finished struct {
 	tenant    string
 	offered   time.Time
+	accepted  time.Time // first acceptance: Hatchet's answer, or Aquifer's 201 in C; zero if never accepted
 	triggered time.Time // zero if it never reached Hatchet
 	completed time.Time
 	outcome   string
 	attempts  int
+	backoff   time.Duration
 }
 
 func newLedger() *ledger {
@@ -69,14 +74,14 @@ func (l *ledger) offer(d *doc) {
 	l.mu.Unlock()
 }
 
-func (l *ledger) accept(id, runID string, attempts int, at time.Time) {
+func (l *ledger) accept(id, runID string, attempts int, backoff time.Duration, at time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	d, ok := l.open[id]
 	if !ok {
 		return
 	}
-	d.accepted, d.runID, d.attempts = at, runID, attempts
+	d.accepted, d.runID, d.attempts, d.backoff = at, runID, attempts, backoff
 	if runID != "" {
 		d.triggered = at
 		l.byRun[runID] = id
@@ -85,14 +90,14 @@ func (l *ledger) accept(id, runID string, attempts int, at time.Time) {
 
 // acceptByAquifer records Aquifer's acceptance (its 201); the Hatchet run ID
 // arrives later through attachRun.
-func (l *ledger) acceptByAquifer(id, jobID string, attempts int, at time.Time) {
+func (l *ledger) acceptByAquifer(id, jobID string, attempts int, backoff time.Duration, at time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	d, ok := l.open[id]
 	if !ok {
 		return
 	}
-	d.accepted, d.jobID, d.attempts = at, jobID, attempts
+	d.accepted, d.jobID, d.attempts, d.backoff = at, jobID, attempts, backoff
 	l.byJob[jobID] = id
 	l.seenJobs[jobID] = true
 }
@@ -125,6 +130,16 @@ func (l *ledger) docForJob(jobID string) (id string, known bool) {
 	return l.byJob[jobID], l.seenJobs[jobID]
 }
 
+// reject records the attempts and backoff of a document that was never
+// accepted, before finish marks it rejected.
+func (l *ledger) reject(id string, attempts int, backoff time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if d, ok := l.open[id]; ok {
+		d.attempts, d.backoff = attempts, backoff
+	}
+}
+
 // finish records a terminal outcome. A document that already finished counts
 // as a duplicate completion instead.
 func (l *ledger) finish(id, outcome string, at time.Time) {
@@ -140,7 +155,8 @@ func (l *ledger) finish(id, outcome string, at time.Time) {
 	delete(l.open, id)
 	delete(l.byRun, d.runID)
 	delete(l.byJob, d.jobID)
-	l.finished = append(l.finished, finished{tenant: d.tenant, offered: d.offered, triggered: d.triggered, completed: at, outcome: outcome, attempts: d.attempts})
+	l.finished = append(l.finished, finished{tenant: d.tenant, offered: d.offered, accepted: d.accepted, triggered: d.triggered,
+		completed: at, outcome: outcome, attempts: d.attempts, backoff: d.backoff})
 }
 
 // due returns accepted, unfinished documents not polled within every.

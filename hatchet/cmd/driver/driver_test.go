@@ -58,12 +58,38 @@ func TestEarlyAquiferWebhookIsRetried(t *testing.T) {
 	if _, known := l.docForJob("job-1"); known {
 		t.Fatal("a job not yet recorded must be unknown, so its webhook is retried")
 	}
-	l.acceptByAquifer("d1", "job-1", 1, time.Now())
+	l.acceptByAquifer("d1", "job-1", 1, 0, time.Now())
 	if id, known := l.docForJob("job-1"); !known || id != "d1" {
 		t.Fatalf("got %q %v, want d1 known", id, known)
 	}
 	l.finish("d1", outcomeCompleted, time.Now())
 	if id, known := l.docForJob("job-1"); !known || id != "" {
 		t.Fatalf("a finished job is known with no open document; got %q %v", id, known)
+	}
+}
+
+func TestReportSeparatesAcceptanceRetriesAndBackoff(t *testing.T) {
+	l := newLedger()
+	start := time.Now()
+	phases := []phase{{name: "steady", length: time.Hour}}
+	offered := start.Add(time.Second)
+	l.offer(&doc{id: "d1", tenant: "small-1", offered: offered})
+	l.accept("d1", "run-1", 3, 4*time.Second, offered.Add(5*time.Second))
+	l.finish("d1", outcomeCompleted, offered.Add(65*time.Second))
+	l.offer(&doc{id: "d2", tenant: "small-1", offered: offered})
+	l.accept("d2", "run-2", 1, 0, offered.Add(time.Second))
+	l.finish("d2", outcomeCompleted, offered.Add(31*time.Second))
+
+	tt := buildReport(l, phases, start, start.Add(time.Hour)).Tenants["small-1"]
+	if tt.Retries != 2 || tt.RetriedDocuments != 1 {
+		t.Fatalf("retries %d over %d documents, want 2 over 1", tt.Retries, tt.RetriedDocuments)
+	}
+	if tt.BackoffSeconds != 4 {
+		t.Fatalf("backoff %v s, want 4", tt.BackoffSeconds)
+	}
+	// Acceptance is offer to first acceptance (1 s and 5 s); completion is
+	// offer to completion (30 s and 65 s), never the acceptance.
+	if tt.AcceptP99ms["steady"] != 5000 || tt.P99ms["steady"] != 65000 || tt.P50ms["steady"] != 65000 {
+		t.Fatalf("accept p99 %v, completion p50/p99 %v/%v", tt.AcceptP99ms["steady"], tt.P50ms["steady"], tt.P99ms["steady"])
 	}
 }
