@@ -50,7 +50,7 @@ fi
 
 start mockllm "$BIN/mockllm" LISTEN=:18000 MAX_SEQS=2 TOKENS_PER_S=200
 start dbtool "$BIN/dbtool" LISTEN=:18100 DATABASE_URL="postgres://postgres:a2a@127.0.0.1:15432/a2a?sslmode=disable" DB_POOL=4 DB_WAIT=500ms
-start sandbox "$BIN/sandbox" LISTEN=:18200 SLOTS=2 RUNNER=docker LOG="$W/out/executions.jsonl"
+start sandbox "$BIN/sandbox" LISTEN=:18200 SLOTS=2 RUNNER=docker LIMITS=${SANDBOX_LIMITS:-rlimit} LOG="$W/out/executions.jsonl"
 LLM=http://127.0.0.1:18000 DB=http://127.0.0.1:18100 SBX=http://127.0.0.1:18200
 metrics="mockllm=$LLM/metrics,dbtool=$DB/metrics,sandbox=$SBX/metrics"
 extra=""

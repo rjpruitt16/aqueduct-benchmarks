@@ -15,8 +15,14 @@
 // deduplicated: the sandbox runs what it's asked to, and logs each run with
 // its key, so repeats are counted where they happen.
 //
+// LIMITS=cgroup (default) has Docker enforce memory, CPU and process limits
+// through cgroups. LIMITS=rlimit uses per-process limits instead (CPU seconds,
+// processes, file size, open files), for hosts whose cgroups Docker can't
+// configure (a Fly Sprite); memory is then bounded only by the time limit.
+// Either way: no network, read-only root, an unprivileged user, no capabilities.
+//
 // Environment: LISTEN (:8200), SLOTS (4), EXEC_TIMEOUT (15s), RUNNER (docker),
-// IMAGE (python:3.12-alpine), LOG (executions.jsonl).
+// LIMITS (cgroup), IMAGE (python:3.12-alpine), LOG (executions.jsonl).
 package main
 
 import (
@@ -51,6 +57,7 @@ type server struct {
 	slots   chan struct{}
 	timeout time.Duration
 	runner  string
+	limits  string
 	image   string
 	extraMs atomic.Int64
 	seq     atomic.Int64
@@ -73,7 +80,7 @@ func main() {
 		log.Fatal(err)
 	}
 	s := &server{slots: make(chan struct{}, envInt("SLOTS", 4)), timeout: timeout,
-		runner: envStr("RUNNER", "docker"), image: envStr("IMAGE", "python:3.12-alpine"),
+		runner: envStr("RUNNER", "docker"), limits: envStr("LIMITS", "cgroup"), image: envStr("IMAGE", "python:3.12-alpine"),
 		byID: map[string]execution{}, byKey: map[string]int{}, logF: f, logEnc: json.NewEncoder(f)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /run", s.run)
@@ -82,7 +89,7 @@ func main() {
 	mux.HandleFunc("GET /metrics", s.metrics)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	addr := envStr("LISTEN", ":8200")
-	log.Printf("sandbox on %s: %d slots, runner %s", addr, cap(s.slots), s.runner)
+	log.Printf("sandbox on %s: %d slots, runner %s, limits %s", addr, cap(s.slots), s.runner, s.limits)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
@@ -150,10 +157,15 @@ func (s *server) execute(ctx context.Context, id, module, tests string) (bool, s
 	switch s.runner {
 	case "docker":
 		name := "sbx-" + id
-		cmd = exec.CommandContext(ctx, "docker", "run", "--rm", "--name", name, "--network", "none",
-			"--read-only", "--tmpfs", "/tmp:size=16m", "--memory", "128m", "--cpus", "0.5", "--pids-limit", "64",
-			"--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--user", "65534:65534",
-			"-v", dir+":/work:ro", "-w", "/work", s.image, "python", "-B", "test_issue.py")
+		args := []string{"run", "--rm", "--name", name, "--network", "none", "--read-only", "--tmpfs", "/tmp:size=16m",
+			"--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--user", "65534:65534"}
+		if s.limits == "rlimit" {
+			args = append(args, "--ulimit", "cpu=10:10", "--ulimit", "nproc=64:64", "--ulimit", "fsize=1048576:1048576", "--ulimit", "nofile=64:64")
+		} else {
+			args = append(args, "--memory", "128m", "--cpus", "0.5", "--pids-limit", "64")
+		}
+		args = append(args, "-v", dir+":/work:ro", "-w", "/work", s.image, "python", "-B", "test_issue.py")
+		cmd = exec.CommandContext(ctx, "docker", args...)
 		defer exec.Command("docker", "rm", "-f", name).Run()
 	case "nsjail":
 		cmd = exec.CommandContext(ctx, "nsjail", "--mode", "o", "--quiet", "--disable_proc",
