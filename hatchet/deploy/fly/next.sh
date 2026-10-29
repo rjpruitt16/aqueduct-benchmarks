@@ -19,6 +19,9 @@
 set -u
 PART=${1:?usage: next.sh <smoke|baseline|resize|resize2|outage|smalldb>}
 HERE=$(cd "$(dirname "$0")" && pwd)
+# The harness image these runs use, kept in the repo so the results say which
+# driver produced them; HARNESS_IMAGE in the environment is the fallback.
+[ -s "$HERE/harness-image" ] && HARNESS_IMAGE=$(cat "$HERE/harness-image") && export HARNESS_IMAGE
 mkdir -p logs
 # The calibrated settings from TUNING.md.
 export RATE=20 TENANT_MAX_RUNS=50 TRIGGER_SLOTS=20 BUFFER_SIZE=50 BUFFER_FLUSH=25ms ENGINE_DB_CONNS=100
