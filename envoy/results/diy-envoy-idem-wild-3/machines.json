@@ -1,0 +1,145 @@
+[
+  {
+    "id": "e826491a112d98",
+    "name": "client-ord-s1",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "683e063b091098",
+    "name": "backend",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "185d379a360568",
+    "name": "svc-orders",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "683e2d0f030938",
+    "name": "svc-payments",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "87472d9b6e4768",
+    "name": "svc-api",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "185d377a371078",
+    "name": "svc-inventory",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "8de450ceed5368",
+    "name": "front",
+    "region": "ord",
+    "image": "docker-hub-mirror.fly.io/envoyproxy/envoy:v1.39.3@sha256:e877a955cc8fde1d54b6b4141b95240511fe1494a7d98759c71a0cf43573ae33",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 1,
+      "memory_mb": 2048
+    }
+  },
+  {
+    "id": "48e092dc40d768",
+    "name": "redis",
+    "region": "ord",
+    "image": "docker-hub-mirror.fly.io/library/redis:7.4-alpine@sha256:1cf73a2f04808e55a8bd2f5706c2aa0ebb0f71938f93deb7af79f48311cd5cb9",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "80e07df16d7328",
+    "name": "client-ord-L1",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "8111532a990448",
+    "name": "client-lhr-L2",
+    "region": "lhr",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "845142f2d44ed8",
+    "name": "client-lhr-s5",
+    "region": "lhr",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "80e97e9a554168",
+    "name": "client-syd-s9",
+    "region": "syd",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "8747e10a671318",
+    "name": "client-syd-L3",
+    "region": "syd",
+    "image": "registry.fly.io/aqb-envoy-images:a7e8d73@sha256:ccd6e1adfdb7d890b351e99b70097bf8f938ac9a408ef91c5c60ffd298eca38b",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  }
+]

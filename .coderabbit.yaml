@@ -1,0 +1,5 @@
+# Raw benchmark data (per-run logs, samples and reports) isn't code to
+# review, and a series adds hundreds of files.
+reviews:
+  path_filters:
+    - "!**/results/**"

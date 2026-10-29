@@ -1,0 +1,134 @@
+[
+  {
+    "id": "28627d0f01d508",
+    "name": "svc-inventory",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "d895911a724678",
+    "name": "svc-payments",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "8d962e4a231228",
+    "name": "svc-api",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "683e04efe15408",
+    "name": "client-ord-L1",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "185d366a316d68",
+    "name": "backend",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "080d29dfd93d98",
+    "name": "aquifer",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "performance",
+      "cpus": 1,
+      "memory_mb": 2048
+    }
+  },
+  {
+    "id": "185d369b37e278",
+    "name": "client-ord-s1",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "781e714be66548",
+    "name": "svc-orders",
+    "region": "ord",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "815406b99e6938",
+    "name": "client-lhr-s5",
+    "region": "lhr",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "48edd40dc74dd8",
+    "name": "client-lhr-L2",
+    "region": "lhr",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "8577d4b41e5268",
+    "name": "client-syd-L3",
+    "region": "syd",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  },
+  {
+    "id": "891e4e5f615d38",
+    "name": "client-syd-s9",
+    "region": "syd",
+    "image": "registry.fly.io/aqb-envoy-images:504ffe1@sha256:2aebcbcd8c70573b8077cf56913ae6dc229b3a3b1e20effa11825b21fbe74826",
+    "guest": {
+      "cpu_kind": "shared",
+      "cpus": 2,
+      "memory_mb": 1024
+    }
+  }
+]

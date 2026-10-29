@@ -1,0 +1,8 @@
+mode=aquifer
+regime=steady
+start_at=1793011049
+image=registry.fly.io/aqb-envoy-images:a3b903d
+region=ord
+clients=ord:big:20 iad:medium:10,small-1:2.5 dfw:small-2:2.5,small-3:2.5 lhr:small-4:2.5
+phases=steady:20m:0.5
+capacity_schedule=
