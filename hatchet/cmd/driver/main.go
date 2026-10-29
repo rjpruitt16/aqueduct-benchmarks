@@ -288,6 +288,15 @@ func (r *run) submitLoop(ctx context.Context, queue <-chan *doc) {
 					break
 				}
 			}
+			// The document can complete while its trigger is still being
+			// retried: an attempt went through but its answer was lost, and
+			// with Hatchet's idempotency on every later attempt is a
+			// collision, which Hatchet's REST API answers with a 500. The
+			// completion callback settles it; stop retrying.
+			if r.l.isFinished(d.id) {
+				r.l.noteSettled()
+				break
+			}
 			retryable, ok := err.(*errRetryable)
 			if !ok || attempt >= r.maxAttempts {
 				log.Printf("rejected %s after %d attempt(s): %v", d.id, attempt, err)

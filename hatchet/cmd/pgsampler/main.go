@@ -109,6 +109,7 @@ func main() {
 			final, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			if ensure(final) {
 				writeTopStatements(conn, filepath.Join(out, "statements.json"))
+				writeDuplicates(conn, filepath.Join(out, "duplicates.json"))
 			}
 			cancel()
 			return
@@ -231,6 +232,28 @@ func take(ctx context.Context, conn *pgx.Conn, prev dbCounters) (sample, dbCount
 
 // writeTopStatements saves the 30 statements with the most total execution
 // time since the run started.
+// writeDuplicates counts, from Hatchet's own records, documents it ran as
+// more than one workflow run: the backend's view of duplicate executions,
+// whatever any caller or gateway believed. One v1_dags_olap row is one
+// workflow run, keyed by the doc_id the driver puts in its metadata.
+func writeDuplicates(conn *pgx.Conn, path string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var docs, dupDocs, extra int64
+	err := conn.QueryRow(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE n > 1), coalesce(sum(n - 1) FILTER (WHERE n > 1), 0)
+		FROM (SELECT additional_metadata->>'doc_id' AS doc, count(*) AS n FROM v1_dags_olap
+		      WHERE additional_metadata ? 'doc_id' GROUP BY 1) runs`).Scan(&docs, &dupDocs, &extra)
+	out := map[string]any{"documents": docs, "documents_with_more_than_one_run": dupDocs, "extra_runs": extra}
+	if err != nil {
+		out = map[string]any{"error": err.Error()}
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		log.Printf("write duplicates: %v", err)
+	}
+}
+
 func writeTopStatements(conn *pgx.Conn, path string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

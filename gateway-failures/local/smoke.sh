@@ -96,7 +96,7 @@ until { [ -z "$AQ" ] || curl -sf "$AQ/health" >/dev/null; } && { [ -z "$ENVOY" ]
 done
 
 # Workers.
-SLOTS=50 TENANT_MAX_RUNS=50 CONFIG=B CALLBACK_URL=http://127.0.0.1:18080/done HATCHET_CLIENT_TOKEN="$TOKEN" \
+IDEMPOTENCY_TTL=2h SLOTS=50 TENANT_MAX_RUNS=50 CONFIG=B CALLBACK_URL=http://127.0.0.1:18080/done HATCHET_CLIENT_TOKEN="$TOKEN" \
   HATCHET_CLIENT_TLS_STRATEGY=none HATCHET_CLIENT_HOST_PORT=127.0.0.1:7077 "$BIN/worker" > "$W/worker.log" 2>&1 &
 pids="$pids $!"
 sleep 5
@@ -115,6 +115,9 @@ esac
 start_s=$(date +%s)
 env "$@" "$BIN/driver" > "$W/out/driver.log" 2>&1 &
 driver_pid=$!
+# Postgres sampler, as on Fly: its exit writes duplicates.json.
+DATABASE_URL="postgres://hatchet:hatchet@127.0.0.1:5433/hatchet?sslmode=disable" OUT="$W/out" "$BIN/pgsampler" > "$W/pgsampler.log" 2>&1 &
+sampler_pid=$!
 
 # The failure.
 sleep "$FAIL_AT"
@@ -134,5 +137,9 @@ case "$FAILURE" in
     (cd "$LOCAL" && docker compose start api >/dev/null 2>&1) && log "hatchet api started" ;;
 esac
 
-wait "$driver_pid" || { echo "driver exited non-zero; see $W/out/driver.log" >&2; exit 1; }
+status=0
+wait "$driver_pid" || status=$?
+kill -INT "$sampler_pid" 2>/dev/null || true
+wait "$sampler_pid" 2>/dev/null || true
+[ "$status" = 0 ] || { echo "driver exited non-zero; see $W/out/driver.log" >&2; exit 1; }
 echo "done: $W/out"

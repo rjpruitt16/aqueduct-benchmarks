@@ -96,6 +96,10 @@ type report struct {
 	//     never completed (failed, never started, or still open);
 	//   never_accepted: refused every time.
 	Acceptance map[string]int `json:"acceptance"`
+	// SettledWhileRetrying counts documents that completed while the producer
+	// was still retrying their trigger: an earlier attempt had gone through
+	// but its answer was lost.
+	SettledWhileRetrying int `json:"settled_while_retrying"`
 	// JainOverload is Jain's index over tenants' completed/offered ratios
 	// for documents offered during the burst and sustained phases: 1 means
 	// every tenant got the same share of its demand served.
@@ -272,6 +276,9 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	rep.DuplicateDone = l.duplicates
 	rep.Outstanding = len(open)
 	rep.Acceptance = acceptance(all, open)
+	l.mu.Lock()
+	rep.SettledWhileRetrying = l.settled
+	l.mu.Unlock()
 	rep.DrainSeconds = drainSeconds(windows, len(open))
 	return rep
 }

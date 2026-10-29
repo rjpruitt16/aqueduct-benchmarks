@@ -441,10 +441,13 @@ for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log;
 done
 fly ssh console -a "$APP" --machine "$(machine_id driver)" -C "cat /out/DONE" 2>/dev/null | tr -d "\r" > "$OUT/DONE" && [ -s "$OUT/DONE" ] || missing="$missing DONE"
 [ -z "$missing" ] || fail "could not copy:$missing"
-# Optional: written only when the driver had gateways to sample.
-for try in 1 2 3; do
-  fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" /out/scrape.jsonl "$OUT/scrape.jsonl" >/dev/null 2>&1 && break
-  rm -f "${OUT:?}/scrape.jsonl"; sleep 5
+# Optional: scrape.jsonl only when the driver had gateways to sample, and
+# duplicates.json only from a harness that counts Hatchet's runs per document.
+for f in scrape.jsonl duplicates.json; do
+  for try in 1 2 3; do
+    fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" "/out/$f" "$OUT/$f" >/dev/null 2>&1 && break
+    rm -f "${OUT:?}/${f:?}"; sleep 5
+  done
 done
 if [ "$CONFIG" = C ] || [ "$CONFIG" = E ]; then
   fly ssh console -a "$APP" --machine "$(machine_id aquifer)" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
