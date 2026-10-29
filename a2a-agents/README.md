@@ -39,7 +39,7 @@ Results, 2026-10-29:
 
 - **Same work everywhere.** Every configuration finished all eight issues with
   byte-identical final fixes, and the sandbox ran the 11 executions the work
-  needs, with no repeats (acceptance criterion 3).
+  needs, with no repeats in A, B and the C rerun (acceptance criterion 3).
 - **A spends requests on refusals.** Most of A's extra requests are sandbox
   calls refused with 429 and retried (60 sandbox requests for 11 executions).
 - **C's first run repeated work.** Aquifer's `/proxy` gives a direct attempt 3 s
