@@ -214,8 +214,8 @@ type run struct {
 	// Hatchet that already holds an earlier run's documents (with workflow
 	// idempotency on, they'd collide) starts clean.
 	idPrefix string
-	phase       atomic.Value // current phase name
-	retries     atomic.Int64
+	phase    atomic.Value // current phase name
+	retries  atomic.Int64
 }
 
 // offerPhases generates documents for every tenant at its rate for each phase.
