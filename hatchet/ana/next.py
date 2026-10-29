@@ -97,6 +97,28 @@ for run in sys.argv[1:]:
             if sum(n for _, n in after[i:i + 6]) / 6 >= 0.9 * rate:
                 back = after[i][0] - last
                 break
+        # Outage measures: when completions resumed after Postgres came back,
+        # when the backlog was back to its level before the event, Postgres
+        # CPU in the 10 minutes after, and the small tenants' worst p99 in
+        # any 10 s window from the event to 10 minutes after.
+        resumed = next((t - last for t, n, _ in series if t > last and n > 0), None)
+        outstanding = [(ts(r["at"]), r.get("outstanding", 0)) for r in rows]
+        before_out = [o for t, o in outstanding if first - 60 <= t < first]
+        level = max(before_out) if before_out else 0
+        cleared = next((t - last for t, o in outstanding if t > last and o <= level), None)
+        pg_after = []
+        if pg:
+            pg_after = [float(v) * scale for t, v in pg[0]["values"] if last <= float(t) <= last + 600]
+        small_p99 = max((r["tenants"].get(t, {}).get("p99_ms", 0) for r in rows if first <= ts(r["at"]) <= last + 600 for t in SMALL), default=0) / 1000
+        lost = {k: v for k, v in s["totals"].items() if k != "completed"}
+        outcomes = {}
+        for t in tenants.values():
+            for k, n in t["outcomes"].items():
+                if k != "completed":
+                    outcomes[k] = outcomes.get(k, 0) + n
+        print(f"  not completed: {outcomes or 'none'}; completions resumed {'%.0f s' % resumed if resumed is not None else 'never'} after the last event; "
+              f"backlog back to its pre-event level {'%.1f min' % (cleared / 60) if cleared is not None else 'never'} after; "
+              f"Postgres CPU in the 10 min after {sum(pg_after) / max(len(pg_after), 1):.2f} cores; small tenants' worst 10 s p99 {small_p99:.1f} s")
         print(f"  completions per 10 s: {rate:.1f} in the 5 min before, {sum(during) / max(len(during), 1):.1f} during; "
               f"back to 90% {'%.0f s after' % back if back is not None else 'never'}; "
               f"producer retries from the first event to 2 min after the last {retries}")
