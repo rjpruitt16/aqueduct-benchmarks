@@ -2,7 +2,7 @@
 
 When a service is overloaded, something has to say no. Envoy says no at once: a `429` or `503` that sends the work back to the caller, which retries later. Aquifer says "accepted", keeps the job, and sends it on when there is room, retrying for the caller and keeping each tenant's share fair. This benchmark measures what each approach costs: requests sent, work done twice, fairness between tenants, and how fast the work gets through.
 
-Neither is assumed to win. Envoy is built for traffic between services you own and gives the lowest latency when there is spare capacity; Aquifer is built for the front door, where callers aren't yours and traffic changes. The two regimes below test both cases.
+Neither is assumed to win. Envoy is built for traffic between services you own and gives the lowest latency when there is spare capacity; Aquifer is built for the front door, where callers aren't yours and traffic changes. The regimes below test both cases.
 
 ## Setup
 
@@ -42,6 +42,7 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 
 - **wild:** retries stacked across a chain of services. A client request goes `api` → `orders` → `inventory` and `payments` in parallel → the front door → the backend, and every service tries 3 times before passing a 503 up. 15 tenants in `ord`, `lhr` and `syd` (one large and four small per region) retry until they succeed, in four styles: polite, no-jitter, aggressive, and stacked (library inside SDK inside app). 40 minutes with a 3× peak, seven bursts, a 60 s backend outage at 20 minutes, and capacity doubling at 25. See [DESIGN-wild.md](DESIGN-wild.md).
 - **diy:** the wild regime with Envoy plus what a team would build itself: idempotency keys in Redis (`envoy-idem`), and idempotency plus a fair per-tenant queue and dispatcher (`envoy-queue`). See [DESIGN-diy.md](DESIGN-diy.md).
+- **survival:** capacity arrives late. 3 min at 0.5×, 15 min at 3×, 12 min at 0.5×; capacity goes from 8 workers to 32 some minutes into the overload (D = 1, 3, 5 or 10). Six tenants in `ord`, `iad`, `dfw` and `lhr`, one of them aggressive. Callers either retry until their job is done (`UNBOUNDED=1`) or give up 5 minutes after creating it, and Aquifer's callers can hold the stream (`HOLD=1`) or poll (`POLL=1`). Run with `deploy/survival-series.sh` (`PART=unbounded`, `clients` or the default). See [DESIGN-survival.md](DESIGN-survival.md).
 
 ## Live headers
 

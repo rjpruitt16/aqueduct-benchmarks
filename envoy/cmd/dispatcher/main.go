@@ -211,7 +211,14 @@ func (d *dispatcher) send(tenant, job string) {
 	}
 	// Refused or failed: back to the head of its list, and wait before the
 	// next dispatch.
-	d.rdb.LPush(ctx, "q:"+tenant, job)
+	// The job exists only here now: keep trying to put it back, or it is lost
+	// while its queued: marker blocks requeueing it for an hour.
+	for d.rdb.LPush(ctx, "q:"+tenant, job).Err() != nil {
+		d.mu.Lock()
+		d.counts.RedisErrors++
+		d.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+	}
 	d.mu.Lock()
 	d.counts.Failures[why]++
 	d.counts.Requeued++

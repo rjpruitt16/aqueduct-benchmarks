@@ -65,7 +65,7 @@ Fairness, both ways:
 
 - The services, clients, timeouts and retry policies are identical in both setups; only the bottom call differs (`/work` through Envoy, or `/proxy` through Aquifer).
 - The bottom services keep their 5 s timeout with Aquifer too, although a job held in a queue can take longer than that. A team adopting Aquifer would likely wait longer or take a webhook; keeping 5 s is the stricter choice for Aquifer, and every re-wait it causes is counted as a request.
-- Requests to the front door are counted for both. Under Aquifer a repeat costs a request but no backend work; the results report both numbers, not only backend executions.
+- Requests to the front door are counted for both. Under Aquifer a repeat with the same key normally costs a request but no backend work; it can still run twice, for example when `/proxy`'s first direct try times out while the job is queued (77–94 jobs a run in the results). The results report both numbers, not only backend executions.
 - The backend's outage refuses Aquifer's dispatches with a 503 the same way it refuses Envoy's; its live headers don't announce the outage.
 
 ## What is measured

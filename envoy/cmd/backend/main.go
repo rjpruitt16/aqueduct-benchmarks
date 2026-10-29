@@ -220,10 +220,17 @@ func main() {
 		if err != nil {
 			log.Fatalf("ONLINE_AFTER: %v", err)
 		}
-		<-b.configSet
-		var cfg map[string]string
-		json.Unmarshal(b.config, &cfg)
-		sec, _ := strconv.ParseInt(cfg["START_AT"], 10, 64)
+		start := os.Getenv("START_AT")
+		if start == "" {
+			<-b.configSet
+			var cfg map[string]string
+			json.Unmarshal(b.config, &cfg)
+			start = cfg["START_AT"]
+		}
+		sec, err := strconv.ParseInt(start, 10, 64)
+		if err != nil {
+			log.Fatalf("START_AT: %v", err)
+		}
 		time.Sleep(time.Until(time.Unix(sec, 0).Add(d)))
 		b.event("online", 0)
 	}
@@ -504,6 +511,11 @@ func (b *backend) report(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// The run copies results once every client has reported, so the
+	// executions must be on disk first.
+	b.mu.Lock()
+	b.execs.Flush()
+	b.mu.Unlock()
 	if err := os.WriteFile(filepath.Join(b.out, "clients", name+".json"), raw, 0o644); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

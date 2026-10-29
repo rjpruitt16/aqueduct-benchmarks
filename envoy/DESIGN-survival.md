@@ -81,7 +81,7 @@ To separate them, the backend records when each job first finished and the clien
 | finished late | the work finished after the deadline: scheduling or capacity |
 | never ran | the backend never ran it |
 
-Runs (`PART=client deploy/survival-series.sh`): Aquifer with the series' backoff client (`aquifer-ctl`, the control, rerun so it has the timestamps) and with its own client (`aquifer-hold`, `HOLD=1`: hold the stream up to a minute, reopen it at once with the same key, and back off up to 2 seconds, jittered, only after a refusal or a network error, honoring `Retry-After`), at D = 3 and 5, 2 rounds: 8 runs, about $4. Envoy keeps its client: jittered backoff is already its best.
+Runs (`PART=client deploy/survival-series.sh`): Aquifer with the series' backoff client (`aquifer-ctl`, the control, rerun so it has the timestamps) and with its own client (`aquifer-hold`, `HOLD=1`: hold the stream up to a minute, reopen it at once with the same key, and back off up to 10 seconds, jittered, only after a refusal or a network error, honoring `Retry-After`), at D = 3 and 5, 2 rounds: 8 runs, about $4. Envoy keeps its client: jittered backoff is already its best.
 
 Aquifer's fairness policy stays as it is: an equal turn per tenant, whatever its volume. A backend that wants some users to get more says so in the limits it advertises. A caller that needs an answer within a deadline belongs on a live connection, not in a queue.
 

@@ -286,6 +286,9 @@ on() {
 echo "== creating $APP in $FLY_ORG/$REGION ($MODE, $REGIME)"
 fly apps create "$APP" -o "$FLY_ORG" >/dev/null
 trap cleanup EXIT
+# dash doesn't run the EXIT trap on a signal; exit so that it does.
+trap 'exit 130' INT HUP
+trap 'exit 143' TERM
 
 echo "== backend"
 run_machine backend "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \

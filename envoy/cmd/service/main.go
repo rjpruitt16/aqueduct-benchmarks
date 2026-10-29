@@ -268,6 +268,24 @@ func (s *svc) bottom(ctx context.Context, tenant, job string) error {
 	case "envoy":
 		return s.work(ctx, tenant, job)
 	}
+	for {
+		wait, err := s.aquifer(ctx, tenant, job)
+		if wait == 0 {
+			return err
+		}
+		// Aquifer has the job and said when to come back (a 202, or a poll
+		// event on its stream): that is waiting, not a refusal.
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// aquifer sends the job to Aquifer's /proxy once. A positive wait means
+// Aquifer holds the job and the caller should come back after it.
+func (s *svc) aquifer(ctx context.Context, tenant, job string) (time.Duration, error) {
 	s.mu.Lock()
 	s.counts.FrontDoor++
 	s.mu.Unlock()
@@ -284,12 +302,16 @@ func (s *svc) bottom(ctx context.Context, tenant, job string) error {
 	req.Header.Set("X-Tenant", tenant)
 	resp, err := s.http.Do(req)
 	if err != nil {
-		return errOf(ctx, err)
+		return 0, errOf(ctx, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusAccepted {
+		io.Copy(io.Discard, resp.Body)
+		return comeBack(resp.Header), nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, resp.Body)
-		return fmt.Errorf("http_%d", resp.StatusCode)
+		return 0, fmt.Errorf("http_%d", resp.StatusCode)
 	}
 	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		// The backend's own answer (Aquifer ran it straight away), or a
@@ -300,9 +322,9 @@ func (s *svc) bottom(ctx context.Context, tenant, job string) error {
 		}
 		json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
 		if out.Duplicate && out.Status != "completed" {
-			return fmt.Errorf("aquifer_%s", out.Status)
+			return 0, fmt.Errorf("aquifer_%s", out.Status)
 		}
-		return nil
+		return 0, nil
 	}
 	// Held in Aquifer's queue: wait on its events for the outcome.
 	sc := bufio.NewScanner(resp.Body)
@@ -313,21 +335,39 @@ func (s *svc) bottom(ctx context.Context, tenant, job string) error {
 		switch {
 		case strings.HasPrefix(line, "event:"):
 			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:") && event == "poll":
+			var out struct {
+				RetryAfterMs int64 `json:"retry_after_ms"`
+			}
+			json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &out)
+			return max(time.Duration(out.RetryAfterMs)*time.Millisecond, 100*time.Millisecond), nil
 		case strings.HasPrefix(line, "data:") && (event == "completed" || event == "failed"):
 			var out struct {
 				ResponseStatus int `json:"response_status"`
 			}
 			json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &out)
 			if event == "completed" && (out.ResponseStatus == 0 || out.ResponseStatus == http.StatusOK) {
-				return nil
+				return 0, nil
 			}
-			return fmt.Errorf("aquifer_%s", event)
+			return 0, fmt.Errorf("aquifer_%s", event)
 		}
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return 0, ctx.Err()
 	}
-	return errors.New("stream_ended")
+	return 0, errors.New("stream_ended")
+}
+
+// comeBack is how long Aquifer said to wait: X-Aqueduct-Retry-After-Ms,
+// else Retry-After, at least 100 ms.
+func comeBack(h http.Header) time.Duration {
+	if ms, err := strconv.ParseInt(h.Get("X-Aqueduct-Retry-After-Ms"), 10, 64); err == nil {
+		return max(time.Duration(ms)*time.Millisecond, 100*time.Millisecond)
+	}
+	if sec, err := strconv.Atoi(h.Get("Retry-After")); err == nil {
+		return max(time.Duration(sec)*time.Second, 100*time.Millisecond)
+	}
+	return time.Second
 }
 
 // work runs the job through Envoy's /work.

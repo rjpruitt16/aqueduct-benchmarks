@@ -44,7 +44,6 @@ for run in sys.argv[1:]:
         rows = [r for r in rows if at + 30 < r["t"] <= over_end]
         if rows:
             use = f"{sum(r['busy'] for r in rows) / len(rows):.1f}/{rows[-1]['workers']} busy after scaling"
-    p50 = {k: round(sum(t['latency_p50_ms'].get('overload', 0) for t in tenants.values()) / 1000 / len(tenants), 1) for k in ["overload"]}
     print(f"== {os.path.basename(run)}  ({info.get('mode', '?')}, D={info.get('scale_delay_min', '?')} min, advertise={info.get('advertise', '?')}, no_key={info.get('no_key', '0')})")
     print(f"  offered {off}  answered in time {done} ({100 * done / max(off, 1):.1f}%)  gave up {gave}  other failures {other}")
     print(f"  ran at the backend {ran} ({100 * ran / max(off, 1):.1f}%)  repeats {dup}  requests per job {req / max(off, 1):.2f}  {use}")
