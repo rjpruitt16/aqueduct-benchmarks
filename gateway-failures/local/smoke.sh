@@ -138,6 +138,11 @@ case "$FAILURE" in
     (cd "$LOCAL" && docker compose start api >/dev/null 2>&1) && log "hatchet api started" ;;
 esac
 
+# A hard limit, so a run that can't finish ends instead of hanging:
+# the schedule (140 s), the drain (4 min) and a margin.
+( sleep "${SMOKE_MAX_S:-600}"; kill "$driver_pid" 2>/dev/null && echo "smoke: driver killed at the ${SMOKE_MAX_S:-600} s limit" >&2 ) &
+watchdog=$!
+pids="$pids $watchdog"
 status=0
 wait "$driver_pid" || status=$?
 kill -INT "$sampler_pid" 2>/dev/null || true

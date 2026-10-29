@@ -145,7 +145,7 @@ func main() {
 	// Each tenant is its own producer with its own submitters, as separate
 	// applications would be: one tenant's slow or refused submissions never
 	// hold up another tenant's documents in the driver.
-	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6),
+	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6), idPrefix: fmt.Sprintf("r%x-", time.Now().Unix()),
 		queues: make(map[string]chan *doc, len(tenants))}
 	for _, t := range tenants {
 		r.queues[t.name] = make(chan *doc, 1<<20)
@@ -210,6 +210,10 @@ type run struct {
 	maxAttempts int
 	queues      map[string]chan *doc // per tenant
 	seq         atomic.Int64
+	// idPrefix makes document IDs unique to this run, so a run against a
+	// Hatchet that already holds an earlier run's documents (with workflow
+	// idempotency on, they'd collide) starts clean.
+	idPrefix string
 	phase       atomic.Value // current phase name
 	retries     atomic.Int64
 }
@@ -247,7 +251,7 @@ func (r *run) offerPhases(ctx context.Context, phases []phase) {
 				owed[i] += share * r.rate * tick.Seconds()
 				for owed[i] >= 1 {
 					owed[i]--
-					d := &doc{id: fmt.Sprintf("d%d", r.seq.Add(1)), tenant: t.name, offered: time.Now()}
+					d := &doc{id: fmt.Sprintf("%sd%d", r.idPrefix, r.seq.Add(1)), tenant: t.name, offered: time.Now()}
 					r.l.offer(d)
 					r.queues[t.name] <- d
 				}
