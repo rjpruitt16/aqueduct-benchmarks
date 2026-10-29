@@ -4,8 +4,12 @@
 #
 #   - if its driver has finished (/out/DONE), copy the results the way run.sh
 #     would (results/<name>, with run.txt from launch.txt) and destroy the app;
-#   - otherwise, once the app is older than the grace period, save its Fly
-#     logs and destroy it: the run is lost, but it stops costing money.
+#   - if its driver is still running, let the run finish (up to MAX_AGE_MIN):
+#     its scheduled events may already have happened, and only the copy and
+#     cleanup are missing;
+#   - if its driver never started (setup died), save its Fly logs and destroy
+#     it once the grace period has passed: the run is lost, but it stops
+#     costing money.
 #
 # Any app older than MAX_AGE_MIN is destroyed whatever its state (after the
 # same copy, if it finished). Safe to run repeatedly; meant to run every few
@@ -45,8 +49,13 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   if [ -n "$drv" ] && [ "$(echo "$machines" | jq -r '.[] | select(.name == "driver") | .state')" = started ]; then
     done_status=$(timeout 60 fly ssh console -a "$APP" --machine "$drv" -C "cat /out/DONE" 2>/dev/null | tr -d '\r')
   fi
-  if [ -z "$done_status" ] && [ "$age" -lt "$GRACE" ] && [ "$age" -lt "$MAX_AGE" ]; then
-    echo "$NAME: no run.sh, not finished, ${age} min old; waiting out the grace period"
+  drv_state=$(echo "$machines" | jq -r '.[] | select(.name == "driver") | .state')
+  if [ -z "$done_status" ] && [ "$drv_state" = started ] && [ "$age" -lt "$MAX_AGE" ]; then
+    echo "$NAME: no run.sh, driver still running, ${age} min old; letting it finish"
+    continue
+  fi
+  if [ -z "$done_status" ] && [ "$age" -lt "$GRACE" ]; then
+    echo "$NAME: no run.sh, driver not started, ${age} min old; waiting out the grace period"
     continue
   fi
   echo "$NAME: run.sh ${alive:+alive}${alive:-gone}, ${age} min old, driver ${done_status:+finished ($done_status)}${done_status:-not finished}"
