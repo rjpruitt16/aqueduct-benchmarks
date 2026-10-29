@@ -187,6 +187,7 @@ func (l *ledger) outstanding() int {
 type openDoc struct {
 	tenant    string
 	offered   time.Time
+	accepted  time.Time
 	triggered time.Time
 }
 
@@ -198,7 +199,7 @@ func (l *ledger) snapshotAll() ([]finished, []openDoc) {
 	done := append([]finished(nil), l.finished...)
 	open := make([]openDoc, 0, len(l.open))
 	for _, d := range l.open {
-		open = append(open, openDoc{tenant: d.tenant, offered: d.offered, triggered: d.triggered})
+		open = append(open, openDoc{tenant: d.tenant, offered: d.offered, accepted: d.accepted, triggered: d.triggered})
 	}
 	return done, open
 }

@@ -20,6 +20,9 @@
 //	AQUIFER_URL           submit through Aquifer at this base URL (C0, C); unset sends straight to Hatchet
 //	PUBLIC_URL            this driver's address as Aquifer reaches it (default http://localhost:8080)
 //	AQUIFER_MAX_RETRIES   Aquifer's retries forwarding each job to Hatchet (default 20; -1 until it succeeds)
+//	SCRAPE                name|url|regexp;... endpoints to sample during the run into scrape.jsonl
+//	                      (a gateway's readiness or counters, Aquifer's metrics); regexp keeps matching lines
+//	SCRAPE_EVERY          sampling interval (default 2s)
 //	TRIGGER_API           send triggers here instead of HATCHET_API (a proxy in front of it, as in D);
 //	                      status polls still go to HATCHET_API
 package main
@@ -162,6 +165,12 @@ func main() {
 	}
 	pollCtx, stopPolling := context.WithCancel(ctx)
 	go r.pollLoop(pollCtx, envDuration("POLL_EVERY", 5*time.Second), envInt("POLLERS", 32))
+	scrapeCtx, stopScraping := context.WithCancel(context.Background())
+	scrapeDone := make(chan struct{})
+	go func() {
+		scrapeLoop(scrapeCtx, parseScrape(os.Getenv("SCRAPE")), envDuration("SCRAPE_EVERY", 2*time.Second), filepath.Join(out, "scrape.jsonl"))
+		close(scrapeDone)
+	}()
 	reportCtx, stopReporting := context.WithCancel(context.Background())
 	reportDone := make(chan struct{})
 	go func() { r.reportLoop(reportCtx, filepath.Join(out, "intervals.jsonl")); close(reportDone) }()
@@ -182,6 +191,8 @@ func main() {
 	stopPolling()
 	stopReporting()
 	<-reportDone
+	stopScraping()
+	<-scrapeDone
 
 	rep := buildReport(l, phases, start, overloadEnd)
 	b, _ := json.MarshalIndent(rep, "", "  ")

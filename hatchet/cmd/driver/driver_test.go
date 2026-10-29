@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -91,5 +94,38 @@ func TestReportSeparatesAcceptanceRetriesAndBackoff(t *testing.T) {
 	// offer to completion (30 s and 65 s), never the acceptance.
 	if tt.AcceptP99ms["steady"] != 5000 || tt.P99ms["steady"] != 65000 || tt.P50ms["steady"] != 65000 {
 		t.Fatalf("accept p99 %v, completion p50/p99 %v/%v", tt.AcceptP99ms["steady"], tt.P50ms["steady"], tt.P99ms["steady"])
+	}
+}
+
+func TestAcceptanceSeparatesAquiferFromHatchet(t *testing.T) {
+	now := time.Now()
+	all := []finished{
+		{outcome: outcomeCompleted, accepted: now, triggered: now},
+		{outcome: outcomeGaveUp, accepted: now},                 // Aquifer's 201, never reached Hatchet
+		{outcome: outcomeFailed, accepted: now, triggered: now}, // Hatchet accepted, then failed
+		{outcome: outcomeRejected},                              // refused every time
+	}
+	open := []openDoc{{accepted: now}, {accepted: now, triggered: now}}
+	got := acceptance(all, open)
+	if got["acked_not_triggered"] != 2 || got["triggered_not_completed"] != 2 || got["never_accepted"] != 1 {
+		t.Fatalf("acceptance %v", got)
+	}
+}
+
+func TestScrapeKeepsMatchingLines(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "cluster.backend.upstream_rq_retry: 3\ncluster.backend.upstream_rq_total: 40\nserver.uptime: 9\n")
+	}))
+	defer srv.Close()
+	targets := parseScrape("envoy|" + srv.URL + "|^cluster\\.backend\\.;bad entry;ready|" + srv.URL + "|")
+	if len(targets) != 2 {
+		t.Fatalf("parsed %d targets, want 2", len(targets))
+	}
+	rec := scrapeOnce(context.Background(), &http.Client{Timeout: time.Second}, targets[0])
+	if rec.Status != 200 || len(rec.Lines) != 2 {
+		t.Fatalf("got %+v", rec)
+	}
+	if rec := scrapeOnce(context.Background(), &http.Client{Timeout: time.Second}, targets[1]); rec.Status != 200 || len(rec.Lines) != 0 {
+		t.Fatalf("status-only target got %+v", rec)
 	}
 }

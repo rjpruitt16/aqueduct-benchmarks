@@ -88,6 +88,14 @@ type report struct {
 	Totals        map[string]int          `json:"totals"`
 	DuplicateDone int                     `json:"duplicate_completions"`
 	Outstanding   int                     `json:"outstanding_at_end"`
+	// Acceptance is where unfinished documents stopped, so work an
+	// intermediary acknowledged is never counted as work Hatchet accepted:
+	//   acked_not_triggered: acknowledged by Aquifer (its 201) but never
+	//     reached Hatchet (no run ID), whatever its outcome;
+	//   triggered_not_completed: accepted by Hatchet (it has a run ID) but
+	//     never completed (failed, never started, or still open);
+	//   never_accepted: refused every time.
+	Acceptance map[string]int `json:"acceptance"`
 	// JainOverload is Jain's index over tenants' completed/offered ratios
 	// for documents offered during the burst and sustained phases: 1 means
 	// every tenant got the same share of its demand served.
@@ -108,6 +116,7 @@ type tenantTotal struct {
 	Outcomes map[string]int     `json:"outcomes"`
 	P50ms    map[string]float64 `json:"p50_ms_by_phase"`
 	P99ms    map[string]float64 `json:"p99_ms_by_phase"`
+	P95ms    map[string]float64 `json:"p95_ms_by_phase"`
 	// SlowdownP99 is this tenant's p99 for documents offered during the
 	// burst and sustained phases, divided by its steady-phase p99. 1 means
 	// the overload didn't affect it.
@@ -166,7 +175,7 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	backoff := map[string]map[string][]float64{}
 	served, demand := map[string]float64{}, map[string]float64{}
 	newTotal := func() *tenantTotal {
-		return &tenantTotal{Offered: map[string]int{}, Outcomes: map[string]int{}, P50ms: map[string]float64{}, P99ms: map[string]float64{},
+		return &tenantTotal{Offered: map[string]int{}, Outcomes: map[string]int{}, P50ms: map[string]float64{}, P99ms: map[string]float64{}, P95ms: map[string]float64{},
 			AcceptP50ms: map[string]float64{}, AcceptP99ms: map[string]float64{}, BackoffP50ms: map[string]float64{}, BackoffP99ms: map[string]float64{}}
 	}
 	addPhased := func(m map[string]map[string][]float64, tenant, ph string, v float64) {
@@ -238,6 +247,7 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	for name, tt := range rep.Tenants {
 		for ph, xs := range lat[name] {
 			tt.P50ms[ph], tt.P99ms[ph] = percentile(xs, 0.50), percentile(xs, 0.99)
+			tt.P95ms[ph] = percentile(xs, 0.95)
 		}
 		if s, o := tt.P99ms["steady"], tt.P99ms["overload"]; s > 0 && o > 0 {
 			tt.SlowdownP99 = o / s
@@ -261,8 +271,33 @@ func buildReport(l *ledger, phases []phase, start, end time.Time) report {
 	rep.JainOverload = jain(ratios)
 	rep.DuplicateDone = l.duplicates
 	rep.Outstanding = len(open)
+	rep.Acceptance = acceptance(all, open)
 	rep.DrainSeconds = drainSeconds(windows, len(open))
 	return rep
+}
+
+// acceptance sorts the documents that didn't complete by how far they got.
+func acceptance(all []finished, open []openDoc) map[string]int {
+	out := map[string]int{"acked_not_triggered": 0, "triggered_not_completed": 0, "never_accepted": 0}
+	place := func(accepted, triggered time.Time) {
+		switch {
+		case accepted.IsZero():
+			out["never_accepted"]++
+		case triggered.IsZero():
+			out["acked_not_triggered"]++
+		default:
+			out["triggered_not_completed"]++
+		}
+	}
+	for _, d := range all {
+		if d.outcome != outcomeCompleted {
+			place(d.accepted, d.triggered)
+		}
+	}
+	for _, d := range open {
+		place(d.accepted, d.triggered)
+	}
+	return out
 }
 
 // longestGap is the longest interval during the burst and sustained phases
