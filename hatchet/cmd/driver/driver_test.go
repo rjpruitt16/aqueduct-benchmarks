@@ -117,7 +117,7 @@ func TestScrapeKeepsMatchingLines(t *testing.T) {
 		fmt.Fprint(w, "cluster.backend.upstream_rq_retry: 3\ncluster.backend.upstream_rq_total: 40\nserver.uptime: 9\n")
 	}))
 	defer srv.Close()
-	targets := parseScrape("envoy|" + srv.URL + "|^cluster\\.backend\\.;bad entry;ready|" + srv.URL + "|")
+	targets := parseScrape("envoy " + srv.URL + " ^cluster\\.backend\\.(upstream_rq_retry|upstream_rq_total);bad;ready " + srv.URL)
 	if len(targets) != 2 {
 		t.Fatalf("parsed %d targets, want 2", len(targets))
 	}

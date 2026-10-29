@@ -341,10 +341,10 @@ fi
 # counters that reset on a restart can be summed and recovery timed.
 scrape=""
 if [ -n "${ENVOY_HOST:-}" ]; then
-  scrape="envoy-ready|http://$ENVOY_HOST:9901/ready|;envoy-stats|http://$ENVOY_HOST:9901/stats?filter=%5E(cluster%5C.backend%5C.(upstream_rq_(total|retry|retry_success|5xx|timeout|pending_overflow|rx_reset|tx_reset)|upstream_cx_(total|destroy_remote_with_active_rq|destroy_local_with_active_rq))|http%5C.ingress%5C.downstream_rq_(total|5xx|4xx|2xx))%24|."
+  scrape="envoy-ready http://$ENVOY_HOST:9901/ready;envoy-stats http://$ENVOY_HOST:9901/stats?filter=%5E(cluster%5C.backend%5C.(upstream_rq_(total|retry|retry_success|5xx|timeout|pending_overflow|rx_reset|tx_reset)|upstream_cx_(total|destroy_remote_with_active_rq|destroy_local_with_active_rq))|http%5C.ingress%5C.downstream_rq_(total|5xx|4xx|2xx))%24 ."
 fi
 if [ -n "${AQUIFER_HOST:-}" ]; then
-  scrape="${scrape:+$scrape;}aquifer-ready|http://$AQUIFER_HOST:8080/health|;aquifer-metrics|http://$AQUIFER_HOST:8080/metrics|^aquifer_(dispatch_attempts_total|admission_rejected_total|wal_sync_lag_seconds)"
+  scrape="${scrape:+$scrape;}aquifer-ready http://$AQUIFER_HOST:8080/health;aquifer-metrics http://$AQUIFER_HOST:8080/metrics ^aquifer_(dispatch_attempts_total|admission_rejected_total|wal_sync_lag_seconds)"
 fi
 [ -n "$scrape" ] && set -- "$@" -e SCRAPE="$scrape"
 retry fly machine update "$(machine_id driver)" -a "$APP" -y --skip-start "$@" >/dev/null || fail "could not configure the driver"

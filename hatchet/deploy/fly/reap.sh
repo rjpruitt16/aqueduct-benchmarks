@@ -29,7 +29,7 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   NAME=${APP#aqb-hatchet-}
   OUT=results/$NAME
   alive=""
-  pgrep -f "run.sh [BCD] $NAME\$" >/dev/null 2>&1 && alive=1
+  pgrep -f "run.sh [BCDE] $NAME\$" >/dev/null 2>&1 && alive=1
   machines=$(fly machine list -a "$APP" --json 2>/dev/null) || continue
   created=$(echo "$machines" | jq -r '[.[].created_at] | min // empty')
   # An app with no machines failed in setup: nothing to wait for.
@@ -88,7 +88,7 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   [ "${DRY_RUN:-}" = 1 ] || timeout 120 fly logs -a "$APP" --no-tail > "$OUT/fly.log" 2>/dev/null || true
   # A run.sh still alive past the hard limit is stuck; stop it before its app goes.
   if [ -n "$alive" ]; then
-    for p in $(pgrep -f "run.sh [BCD] $NAME\$"); do act kill "$p"; done
+    for p in $(pgrep -f "run.sh [BCDE] $NAME\$"); do act kill "$p"; done
   fi
   if [ "${DRY_RUN:-}" = 1 ]; then
     echo "  (dry run) would destroy $APP"

@@ -23,11 +23,12 @@ type scrapeTarget struct {
 	lines *regexp.Regexp // keep only matching lines; nil keeps none (status only)
 }
 
-// parseScrape reads SCRAPE: name|url|regexp entries separated by ";".
+// parseScrape reads SCRAPE: entries separated by ";", each "name url [regexp]"
+// separated by spaces (a URL or a pattern may contain "|", never a space).
 func parseScrape(spec string) []scrapeTarget {
 	var out []scrapeTarget
 	for _, part := range strings.Split(spec, ";") {
-		f := strings.SplitN(strings.TrimSpace(part), "|", 3)
+		f := strings.SplitN(strings.TrimSpace(part), " ", 3)
 		if len(f) < 2 || f[0] == "" || f[1] == "" {
 			continue
 		}

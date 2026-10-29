@@ -103,8 +103,8 @@ sleep 5
 
 # The driver: the Fly runs' settings, at a low rate and a short schedule.
 scrape=""
-[ -n "$ENVOY" ] && scrape="envoy-ready|http://127.0.0.1:19901/ready|;envoy-stats|http://127.0.0.1:19901/stats?filter=%5E(cluster%5C.backend%5C.(upstream_rq_(total|retry|retry_success|5xx|timeout|pending_overflow|rx_reset|tx_reset)|upstream_cx_(total|destroy_remote_with_active_rq|destroy_local_with_active_rq))|http%5C.ingress%5C.downstream_rq_(total|5xx|4xx|2xx))%24|."
-[ -n "$AQ" ] && scrape="${scrape:+$scrape;}aquifer-ready|$AQ/health|;aquifer-metrics|$AQ/metrics|^aquifer_(dispatch_attempts_total|admission_rejected_total|wal_sync_lag_seconds)"
+[ -n "$ENVOY" ] && scrape="envoy-ready http://127.0.0.1:19901/ready;envoy-stats http://127.0.0.1:19901/stats?filter=%5E(cluster%5C.backend%5C.(upstream_rq_(total|retry|retry_success|5xx|timeout|pending_overflow|rx_reset|tx_reset)|upstream_cx_(total|destroy_remote_with_active_rq|destroy_local_with_active_rq))|http%5C.ingress%5C.downstream_rq_(total|5xx|4xx|2xx))%24 ."
+[ -n "$AQ" ] && scrape="${scrape:+$scrape;}aquifer-ready $AQ/health;aquifer-metrics $AQ/metrics ^aquifer_(dispatch_attempts_total|admission_rejected_total|wal_sync_lag_seconds)"
 set -- RATE=4 PHASES=steady:20:0.5,burst:40:3,sustained:40:1.5,recovery:40:0.5 MAX_ATTEMPTS=1000000 AQUIFER_MAX_RETRIES=-1 \
   DRAIN_MAX=4m OUT="$W/out" LISTEN=:18080 HATCHET_API=http://127.0.0.1:8080 HATCHET_CLIENT_TOKEN="$TOKEN" SCRAPE="$scrape"
 case "$CONFIG" in
