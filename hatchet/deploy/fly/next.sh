@@ -37,6 +37,10 @@ one() {
   fly apps destroy "aqb-hatchet-$name" -y >/dev/null 2>&1 || true
   # C always runs with Patch 2: Hatchet tells Aquifer how fast to send.
   [ "$config" = C ] && set -- PACING=1 "$@"
+  # What this run was launched with, so deploy/fly/reap.sh can write its
+  # run.txt if run.sh dies before it does.
+  mkdir -p "results/$name"
+  { echo "config=$config"; for kv in "$@"; do echo "$kv"; done; echo "launched=$(date -u +%FT%TZ)"; } > "results/$name/launch.txt"
   env "$@" sh "$HERE/run.sh" "$config" "$name" > "logs/$name.log" 2>&1 &
   pids="$pids $!" names="$names $name"
 }
