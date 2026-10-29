@@ -82,7 +82,7 @@ func coordinator(public string) http.Handler {
 				return
 			}
 			res := runWorkflow(ctx, task, research, coding, verify, rounds)
-			if !yield(a2a.NewArtifactEvent(ec, a2a.NewDataPart(res)), nil) {
+			if !yield(a2a.NewArtifactEvent(ec, a2a.NewDataPart(agentrpc.Plain(res))), nil) {
 				return
 			}
 			state := a2a.TaskStateCompleted

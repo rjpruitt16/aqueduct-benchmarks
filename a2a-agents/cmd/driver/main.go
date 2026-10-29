@@ -134,7 +134,7 @@ func run(ctx context.Context, coord, sandbox string, e *entry) {
 		return
 	}
 	task := work.Task{Workflow: e.Workflow, Issue: e.Issue, Tenant: e.Tenant}
-	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewDataPart(task))
+	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewDataPart(agentrpc.Plain(task)))
 	var res *work.Result
 	for ev, err := range c.SendStreamingMessage(ctx, &a2a.SendMessageRequest{Message: msg, Tenant: e.Tenant}) {
 		if err != nil {

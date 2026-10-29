@@ -35,7 +35,7 @@ func Mux(name, description, publicURL string, h Handler) http.Handler {
 				yield(nil, err)
 				return
 			}
-			yield(a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewDataPart(out)), nil)
+			yield(a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewDataPart(Plain(out))), nil)
 		}
 	})
 	card := &a2a.AgentCard{
@@ -48,6 +48,21 @@ func Mux(name, description, publicURL string, h Handler) http.Handler {
 	mux.Handle("/", a2asrv.NewJSONRPCHandler(a2asrv.NewHandler(exec)))
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
 	return mux
+}
+
+// Plain turns v into plain JSON values (maps, slices, strings, numbers). The
+// SDK's task store copies artifacts with gob, which only knows plain values,
+// so a struct must go into a data part in this form.
+func Plain(v any) any {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var out any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // DataOf returns the first data part of msg as JSON.
@@ -93,7 +108,7 @@ func Call(ctx context.Context, url string, in, out any) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.SendMessage(ctx, &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewDataPart(in))})
+	res, err := c.SendMessage(ctx, &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewDataPart(Plain(in)))})
 	if err != nil {
 		return err
 	}
