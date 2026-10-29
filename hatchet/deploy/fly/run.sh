@@ -39,6 +39,8 @@
 #                   after the driver starts; Postgres restarts on the same volume
 #   OUTAGE_AT, OUTAGE_FOR  stop Postgres OUTAGE_AT seconds after the driver starts,
 #                   for OUTAGE_FOR seconds
+#   IDEMPOTENCY_TTL Hatchet's own workflow idempotency keyed by document, for this long
+#                   (off by default); gateway-failures turns it on in every configuration
 #   API_VM          Hatchet API machine size, performance-1x or -2x (default: -2x in B, -1x otherwise);
 #                   gateway-failures sets it so every configuration has the same budget
 #   ENVOY_KILL_AT   D and E: SIGKILL Envoy this many seconds after the driver starts;
@@ -314,7 +316,8 @@ while [ "$i" -le "$WORKERS" ]; do
   fly machine run "$HARNESS_IMAGE" -a "$APP" -n "worker-$i" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-failure --detach -e ROLE=worker -e CONFIG=B -e SLOTS=200 -e TENANT_MAX_RUNS="${TENANT_MAX_RUNS:-50}" \
     -e CALLBACK_URL="http://$DRIVER_HOST:8080/done" -e HATCHET_CLIENT_TOKEN="$TOKEN" \
-    -e HATCHET_CLIENT_TLS_STRATEGY=none -e HATCHET_CLIENT_HOST_PORT="$ENGINE_HOST:7070" >/dev/null
+    -e HATCHET_CLIENT_TLS_STRATEGY=none -e HATCHET_CLIENT_HOST_PORT="$ENGINE_HOST:7070" \
+    ${IDEMPOTENCY_TTL:+-e IDEMPOTENCY_TTL=$IDEMPOTENCY_TTL} >/dev/null
   i=$((i + 1))
 done
 sleep 20
@@ -488,6 +491,7 @@ fly machine list -a "$APP" --json \
   case "$CONFIG" in C | E) echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"; echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}" ;; esac
   [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000} max_rps=${PACING_MAX_RPS:-${RATE:-50}}"
   echo "pg_size=$PG_SIZE"
+  echo "idempotency_ttl=${IDEMPOTENCY_TTL:-off}"
   [ -n "${MAX_ATTEMPTS:-}" ] && echo "max_attempts=$MAX_ATTEMPTS"
   [ -n "${AQUIFER_MAX_RETRIES:-}" ] && echo "aquifer_max_retries=$AQUIFER_MAX_RETRIES"
   [ "$CONFIG" = D ] && echo "envoy_tenant_rps=${TENANT_RPS:-15} envoy_global_rps=${GLOBAL_RPS:-${RATE:-50}}"
