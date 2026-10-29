@@ -30,6 +30,9 @@ one() {
   config=$1 name=$2
   shift 2
   [ -f "results/$name/DONE" ] && return
+  # A failed earlier try kept its app (its logs are in results/<name>);
+  # remove it so this try can create the app again.
+  fly apps destroy "aqb-hatchet-$name" -y >/dev/null 2>&1 || true
   # C always runs with Patch 2: Hatchet tells Aquifer how fast to send.
   [ "$config" = C ] && set -- PACING=1 "$@"
   env "$@" sh "$HERE/run.sh" "$config" "$name" > "logs/$name.log" 2>&1 &
