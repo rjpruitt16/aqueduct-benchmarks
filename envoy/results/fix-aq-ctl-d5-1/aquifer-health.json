@@ -1,0 +1,2 @@
+No machine specified, using 2872e30f922ed8 in region ord
+{"admission":{"db_bytes":65985454,"db_max_bytes":6313670470,"enabled":true,"max_body_bytes":1048576,"max_sync_lag_ms":1000,"memory_limit_mb":1378,"memory_mb":67,"memory_reserved_mb":300,"retry_after_seconds":5,"sync_lag_ms":87},"l8_protocol":"0.2","l8_public_key":"Lrbl4m/CDp12wtAW3GW/tPzQZ4OfxmrhVZJSbJJaejI=","pools":{},"queues":{"active":0,"backlog":0,"admission_pressure":0},"status":"ok"}

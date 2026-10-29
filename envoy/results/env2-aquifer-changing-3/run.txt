@@ -1,0 +1,10 @@
+mode=aquifer
+regime=changing
+start_at=1793032405
+image=registry.fly.io/aqb-envoy-images:c81776d
+region=ord
+clients=ord:big:20 iad:medium:10,small-1:2.5 dfw:small-2:2.5,small-3:2.5 lhr:small-4:2.5
+phases=steady:5m:0.5,spike:5m:3,sustained:10m:1.5,recovery:10m:0.5
+capacity_schedule=15m:16
+extra_backends=
+global_rps=80

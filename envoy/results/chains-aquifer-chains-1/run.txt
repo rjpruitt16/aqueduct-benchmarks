@@ -1,0 +1,11 @@
+mode=aquifer
+regime=chains
+start_at=1793051459
+image=registry.fly.io/aqb-envoy-images:cd70070
+region=ord
+clients=ord:big:16 ord:near-polite:4 ord:near-aggr:4:aggressive lhr:far-polite:4 lhr:far-aggr:4:aggressive syd:vfar-polite:4 syd:vfar-aggr:4:aggressive
+phases=steady:5m:0.5,overload:15m:3,sustained:10m:2,recovery:10m:0.5
+workload=chains
+capacity_schedule=20m:16
+extra_backends=
+global_rps=80
