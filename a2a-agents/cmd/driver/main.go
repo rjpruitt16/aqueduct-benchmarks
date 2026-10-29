@@ -47,6 +47,7 @@ type entry struct {
 	State     string            `json:"state"`   // the A2A task's final state
 	Outcome   string            `json:"outcome"` // completed (verified), failed, unverified, unfinished, error
 	Rounds    int               `json:"rounds"`
+	Fix       string            `json:"fix,omitempty"` // the final fix, verified or not
 	Error     string            `json:"error,omitempty"`
 	Calls     []work.CallRecord `json:"calls,omitempty"`
 }
@@ -174,7 +175,7 @@ func run(ctx context.Context, coord, sandbox string, e *entry) {
 		}
 		return
 	}
-	e.Rounds, e.Calls, e.Error = res.Rounds, res.Calls, res.Error
+	e.Rounds, e.Calls, e.Error, e.Fix = res.Rounds, res.Calls, res.Error, res.Fix
 	if !res.Verified {
 		e.Outcome = "failed"
 		return
