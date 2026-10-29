@@ -62,7 +62,10 @@ case "$CONFIG" in
   C)
     # One upstream per resource, with the same limits B's dispatcher has.
     printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "127.0.0.1:18000":\n    rps: 100\n    max_concurrent: 2\n  "127.0.0.1:18100":\n    rps: 200\n    max_concurrent: 4\n  "127.0.0.1:18200":\n    rps: 100\n    max_concurrent: 2\n' > "$W/aquifer.yaml"
-    start aquifer "$BIN/aquifer" AQUIFER_ADAPTER=http PORT=18400 DB_PATH="$W/aqdata" CONFIG_PATH="$W/aquifer.yaml"
+    # A test run takes longer than /proxy's default 3 s direct attempt; a
+    # shorter limit cuts runs off and Aquifer then runs them again.
+    start aquifer "$BIN/aquifer" AQUIFER_ADAPTER=http PORT=18400 DB_PATH="$W/aqdata" CONFIG_PATH="$W/aquifer.yaml" \
+      AQUIFER_PROXY_DIRECT_ATTEMPT_TIMEOUT_SECONDS=${AQUIFER_DIRECT_TIMEOUT:-60}
     extra="AQUIFER_URL=http://127.0.0.1:18400"
     metrics="$metrics,aquifer=http://127.0.0.1:18400/metrics" ;;
 esac
