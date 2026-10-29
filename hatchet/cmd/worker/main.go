@@ -11,6 +11,7 @@
 //	TENANT_MAX_RUNS   B only: concurrent documents per tenant (default 50).
 //	SCHEDULE_TIMEOUT  B only: how long a task may wait to start (default 1h).
 //	CALLBACK_URL      where the index step POSTs completions.
+//	IDEMPOTENCY_TTL   turn on Hatchet workflow idempotency keyed by input.doc_id for this long (off by default).
 //
 // Plus the Hatchet client's own variables (HATCHET_CLIENT_TOKEN, ...).
 package main
@@ -65,6 +66,19 @@ func main() {
 			log.Fatalf("SCHEDULE_TIMEOUT: %v", err)
 		}
 		taskOpts = append(taskOpts, hatchet.WithScheduleTimeout(timeout))
+	}
+
+	// IDEMPOTENCY_TTL turns on Hatchet's own workflow idempotency, keyed by
+	// document: a second trigger for the same document within the TTL is
+	// rejected instead of starting a second run. Off by default, so earlier
+	// series are unchanged; gateway-failures sets it in every configuration,
+	// so no setup is left exposed to duplicates Hatchet itself can prevent.
+	if v := os.Getenv("IDEMPOTENCY_TTL"); v != "" {
+		ttl, err := time.ParseDuration(v)
+		if err != nil {
+			log.Fatalf("IDEMPOTENCY_TTL: %v", err)
+		}
+		wfOpts = append(wfOpts, hatchet.WithWorkflowIdempotency(hatchet.IdempotencyConfig{Expression: "input.doc_id", TTL: ttl}))
 	}
 
 	wf := client.NewWorkflow(pipeline.WorkflowName, wfOpts...)
