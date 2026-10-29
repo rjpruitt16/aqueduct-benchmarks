@@ -35,10 +35,18 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   alive=""
   pgrep -f "run.sh [BCD] $NAME\$" >/dev/null 2>&1 && alive=1
   machines=$(fly machine list -a "$APP" --json 2>/dev/null) || continue
+  # Never act on an answer that isn't a JSON array: an unreadable list is not
+  # an empty one.
+  echo "$machines" | jq -e 'type == "array"' >/dev/null 2>&1 || { echo "$NAME: machine list unreadable; skipped"; continue; }
   created=$(echo "$machines" | jq -r '[.[].created_at] | min // empty')
-  # An app with no machines failed in setup: nothing to wait for.
-  age=$MAX_AGE
-  [ -n "$created" ] && age=$(( (now - $(date -d "$created" +%s)) / 60 ))
+  # An app with no machines failed in setup: nothing to wait for. Only when
+  # run.sh is gone too.
+  age=0
+  if [ -n "$created" ]; then
+    age=$(( (now - $(date -d "$created" +%s)) / 60 ))
+  elif [ -z "$alive" ]; then
+    age=$MAX_AGE
+  fi
   if [ -n "$alive" ] && [ "$age" -lt "$MAX_AGE" ]; then
     continue
   fi
