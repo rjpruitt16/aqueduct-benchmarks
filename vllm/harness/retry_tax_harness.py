@@ -166,6 +166,11 @@ async def run_direct_request(
                     status=resp.status,
                     latency=completed_ts - sent_ts,
                 )
+                # A permanent client error (a wrong model, a bad request)
+                # can't succeed on a retry; only transient answers are retried.
+                if 400 <= resp.status < 500 and resp.status not in (408, 429):
+                    log.write(request_id=request_id, attempt=attempt, event="rejected", status=resp.status)
+                    return
         except asyncio.TimeoutError:
             giveup_ts = time.time()
             log.write(
@@ -184,6 +189,9 @@ async def read_sse_completion(resp: aiohttp.ClientResponse, sent_ts: float, requ
     """Parse the SSE stream line-by-line for a completed/failed event and
     log it. Aquifer closes the connection right after writing one of these
     (server.go's streamJob returns), so reading to EOF is sufficient."""
+    if resp.status != 200:
+        log.write(request_id=request_id, job_id=job_id, event="stream_error", status=resp.status)
+        return
     current_event = None
     async for raw_line in resp.content:
         line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
@@ -210,6 +218,8 @@ async def read_sse_completion(resp: aiohttp.ClientResponse, sent_ts: float, requ
                 )
                 return
             current_event = None
+    # The stream ended without a completed or failed event.
+    log.write(request_id=request_id, job_id=job_id, event="stream_ended")
 
 
 async def run_aquifer_request(
@@ -270,6 +280,10 @@ async def scrape_vllm_metrics(vllm_url: str, out_path: str, stop_event: asyncio.
                 try:
                     async with session.get(f"{vllm_url}/metrics", timeout=aiohttp.ClientTimeout(total=2)) as resp:
                         text = await resp.text()
+                        if resp.status != 200:
+                            # An error body would parse as zeros and read as a
+                            # real counter sample.
+                            raise RuntimeError(f"HTTP {resp.status}")
                     metrics = parse_vllm_metrics(text)
                     metrics["ts"] = ts
                     f.write(json.dumps(metrics) + "\n")
@@ -310,6 +324,21 @@ async def run(args):
     stop_scrape = asyncio.Event()
     scrape_task = asyncio.create_task(scrape_vllm_metrics(args.vllm_url, args.out_metrics, stop_scrape))
 
+    # Aquifer mode holds a stream open per waiting job, up to --sse-timeout,
+    # so a run needs about as many open files as requests in flight. Raise the
+    # soft limit to the hard one, and warn if even that may not be enough,
+    # since running out turns into stream errors that aren't Aquifer's or the
+    # GPU's.
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft < hard:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+        expected = int(args.end_rate * min(args.sse_timeout, args.ramp_seconds))
+        if args.mode == "aquifer" and hard != resource.RLIM_INFINITY and hard < expected + 1000:
+            print(f"# warning: open file limit {hard} may be below the ~{expected} streams this run can hold open")
+    except (ImportError, ValueError, OSError):
+        pass
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
@@ -337,7 +366,12 @@ async def run(args):
             tasks.append(asyncio.create_task(coro))
 
         print(f"# all {len(tasks)} requests fired, waiting for in-flight to finish...")
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        failed = [r for r in results if isinstance(r, BaseException)]
+        for r in failed:
+            log.write(request_id=None, event="task_error", error=repr(r))
+        if failed:
+            print(f"# warning: {len(failed)} requests ended with an error and no outcome; see task_error events")
 
     stop_scrape.set()
     await scrape_task

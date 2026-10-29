@@ -8,7 +8,7 @@ Both experiments ran in August 2026 against one RunPod RTX PRO 4500 Blackwell ru
 - the KV cache deliberately capped at 512 MB, so a realistic burst can fill it;
 - every request generates exactly 300 tokens (`min_tokens = max_tokens = 300`), so each one holds the GPU long enough to matter.
 
-They first appeared in Aquifer's `benchmark.md` (sections 9 and 10). The harness in [`harness/`](harness/) is copied unchanged from [rjpruitt16/aquifer](https://github.com/rjpruitt16/aquifer) `benchmark/` at `25c53b5`.
+They first appeared in Aquifer's `benchmark.md` (sections 9 and 10). The harness in [`harness/`](harness/) comes from [rjpruitt16/aquifer](https://github.com/rjpruitt16/aquifer) `benchmark/` at `25c53b5`, with fixes made since the runs (see Limits); the numbers below came from the original scripts.
 
 ## 1. A fixed burst: 40 requests/s for 30 s
 
@@ -53,6 +53,12 @@ Three numbers from vLLM's own `/metrics` and the client's log:
 - **One run each, and the raw data wasn't kept.** Only the numbers above survive. Rerunning needs a GPU; the commands are below.
 - **The direct callers are impatient.** A 5 s timeout with 3 retries is a harsh client. A more patient one would waste less straight to vLLM; that wasn't tested.
 - **Aquifer's limit was set by hand.** Its 45-in-flight ceiling came from knowing vLLM's `--max-num-seqs`. ORCA's signal tracks KV memory, not scheduler slots, so a GPU that runs out of slots before memory can be saturated while the signal stays quiet. Detecting that limit automatically is [aquifer#11](https://github.com/rjpruitt16/aquifer/issues/11).
+- **The original scripts had flaws that may have moved the numbers, in ways that can't be checked without the raw data:**
+  - **The waste figure** compared tokens delivered over the whole event log with tokens generated between the first and last metrics scrape. The two windows nearly coincide, because scraping ran until the last caller finished, but not exactly.
+  - **In Aquifer mode, every waiting job held its own stream open** for up to 60 s, with no limit. If the load machine ran out of file descriptors, some of Aquifer's unanswered requests were harness failures, not Aquifer's or the GPU's. That would understate Aquifer's 25.2%.
+  - **The scripts didn't record streams** that closed early or failed, or requests that errored.
+
+  The scripts now compare the same window, raise the open-file limit and warn when it may be too low, and log those outcomes.
 - **Older Aquifer.** These are v0.5.0 and v0.8.0, before the shared destination limits and ready estimates used in the [Envoy](../envoy/RESULTS.md) runs.
 
 ## Running
@@ -67,8 +73,11 @@ cd vllm/harness
 # 2. Waste in tokens: a ramp with retrying callers, then the report.
 pip install -r requirements.txt
 python3 retry_tax_harness.py --mode direct --vllm-url <vllm-url> \
-  --start-rate 20 --end-rate 300 --ramp-seconds 60 --client-timeout 5 --max-retries 3 --max-tokens 300
+  --start-rate 20 --end-rate 300 --ramp-seconds 60 --client-timeout 5 --max-retries 3 --max-tokens 300 \
+  --out-events direct-events.jsonl --out-metrics direct-metrics.jsonl
 python3 retry_tax_harness.py --mode aquifer --vllm-url <vllm-url> --aquifer-url <aquifer-url> \
-  --start-rate 20 --end-rate 300 --ramp-seconds 60 --max-tokens 300
-python3 analyze_retry_tax.py --events <events.jsonl> --metrics <metrics.jsonl>
+  --start-rate 20 --end-rate 300 --ramp-seconds 60 --max-tokens 300 \
+  --out-events aquifer-events.jsonl --out-metrics aquifer-metrics.jsonl
+python3 analyze_retry_tax.py --events direct-events.jsonl --metrics direct-metrics.jsonl
+python3 analyze_retry_tax.py --events aquifer-events.jsonl --metrics aquifer-metrics.jsonl
 ```

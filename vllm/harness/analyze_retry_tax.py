@@ -67,10 +67,11 @@ def analyze(events_path: str, metrics_path: str):
     successes = [e for e in events if e["event"] == "success"]
     abandoned = [e for e in events if e["event"] == "abandoned"]
     timeouts = [e for e in events if e["event"] == "client_timeout"]
-    enqueue_errors = [e for e in events if e["event"] in ("enqueue_error", "sse_timeout")]
+    enqueue_errors = [e for e in events if e["event"] in ("enqueue_error", "sse_timeout", "stream_error", "stream_ended", "task_error")]
+    rejected = [e for e in events if e["event"] == "rejected"]
 
     total_attempts = sum(1 for e in events if e["event"] == "sent")
-    retried_requests = sum(1 for e in events if e["event"] == "sent" and e.get("attempt", 1) and e["attempt"] > 1)
+    retried_requests = len({e["request_id"] for e in events if e["event"] == "sent" and (e.get("attempt") or 1) > 1})
 
     latencies = sorted(e["latency"] for e in successes if "latency" in e)
     useful_tokens = sum(e.get("completion_tokens", 0) or 0 for e in successes)
@@ -78,15 +79,22 @@ def analyze(events_path: str, metrics_path: str):
 
     raw_tokens = None
     raw_tps = None
+    wasted_tps = None
+    wasted_pct = None
     if len(metrics) >= 2:
         metrics_sorted = sorted(metrics, key=lambda m: m["ts"])
         first, last = metrics_sorted[0], metrics_sorted[-1]
         span = max(last["ts"] - first["ts"], 1e-9)
         raw_tokens = last.get("vllm:generation_tokens_total", 0) - first.get("vllm:generation_tokens_total", 0)
         raw_tps = raw_tokens / span
-
-    wasted_tps = None if raw_tps is None else max(raw_tps - useful_tps, 0.0)
-    wasted_pct = None if not raw_tps else (wasted_tps / raw_tps * 100 if raw_tps > 0 else 0.0)
+        # Waste compares the two over the same window: the tokens delivered
+        # between the first and last scrape against the counter's growth
+        # between them. Responses outside the window have no matching raw
+        # count, and would otherwise skew the subtraction.
+        in_window = sum(e.get("completion_tokens", 0) or 0 for e in successes if first["ts"] <= e["ts"] <= last["ts"])
+        if raw_tokens > 0:
+            wasted_tps = (raw_tokens - in_window) / span
+            wasted_pct = (raw_tokens - in_window) / raw_tokens * 100
 
     peak_running = max((m.get("vllm:num_requests_running", 0) for m in metrics), default=None)
     peak_waiting = max((m.get("vllm:num_requests_waiting", 0) for m in metrics), default=None)
@@ -98,6 +106,7 @@ def analyze(events_path: str, metrics_path: str):
     print(f"  succeeded: {len(successes)} ({len(successes) / max(len(logical_requests), 1) * 100:.1f}%)")
     print(f"  abandoned (exhausted retries): {len(abandoned)}")
     print(f"  enqueue/stream errors: {len(enqueue_errors)}")
+    print(f"  rejected (permanent 4xx, not retried): {len(rejected)}")
     print(f"total attempts sent: {total_attempts}  (retried at least once: {retried_requests})")
     print(f"client-side timeouts (attempts that never got a response in time): {len(timeouts)}")
     print()
@@ -112,7 +121,8 @@ def analyze(events_path: str, metrics_path: str):
     print(f"  useful (delivered to a listener): {useful_tps:.1f} tok/s  ({useful_tokens} tokens total)")
     if raw_tps is not None:
         print(f"  raw (vLLM generation_tokens_total delta): {raw_tps:.1f} tok/s  ({raw_tokens:.0f} tokens total)")
-        print(f"  wasted (raw - useful): {wasted_tps:.1f} tok/s  ({wasted_pct:.1f}% of raw generation)")
+        if wasted_pct is not None:
+            print(f"  wasted (raw - useful, over the scrape window): {wasted_tps:.1f} tok/s  ({wasted_pct:.1f}% of raw generation)")
     else:
         print("  raw: unavailable (need >=2 metrics samples)")
     print()

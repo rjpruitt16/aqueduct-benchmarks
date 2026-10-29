@@ -73,6 +73,8 @@ run_phase() {
   local peakfile="/tmp/vllm_peak_${mode}_${label}.log"
   poll_peak_metrics "$peakfile" &
   local poll_pid=$!
+  # Stop the poller even if vegeta fails and set -e ends the script.
+  trap 'kill "$poll_pid" 2>/dev/null || true' EXIT
 
   echo ""
   echo "## [$mode] Phase: ${label} (rate=${rate}/s duration=${duration})"
@@ -81,6 +83,7 @@ run_phase() {
 
   kill "$poll_pid" 2>/dev/null || true
   wait "$poll_pid" 2>/dev/null || true
+  trap - EXIT
   echo "$(report_peak "$peakfile")"
 }
 
@@ -95,7 +98,10 @@ run_scenario() {
   run_phase "$mode" "burst" "$BURST_RATE" "30s"
   snapshot_metrics "immediately after burst (${mode})"
   run_phase "$mode" "recovery" "$BASELINE_RATE" "15s"
-  snapshot_metrics "after full scenario (${mode})"
+  # In aquifer mode vegeta returns once the jobs are accepted, while Aquifer
+  # may still be sending them to vLLM: this is when the load stopped, not
+  # when the GPU finished.
+  snapshot_metrics "when the load stopped (${mode})"
 }
 
 echo "# GPU retry tax benchmark"
@@ -107,7 +113,7 @@ run_scenario "aquifer"
 echo ""
 echo "=========================================="
 echo "Compare the two 'burst' phase reports above: direct hits vLLM's"
-echo "--max-num-seqs 8 ceiling immediately (this instance was deliberately"
-echo "constrained so a modest burst is enough to saturate it); aquifer"
+echo "--max-num-seqs ceiling (the instance should be constrained so a modest"
+echo "burst is enough to saturate it); aquifer"
 echo "should show ~100% ingest success with dispatch to vLLM paced down"
 echo "once kv_cache_usage_perc crosses the ORCA thresholds in orca.go."
