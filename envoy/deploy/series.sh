@@ -16,14 +16,19 @@ RUNS=${RUNS:-envoy:steady aquifer:steady envoy:changing aquifer:changing}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p logs
 r=${FIRST:-1}
+failed=0
 while [ "$r" -lt "$((${FIRST:-1} + ROUNDS))" ]; do
   echo "== round $r $(date -u +%TZ)"
+  pids=""
   for run in $RUNS; do
     name=$SERIES-${run%%:*}-${run#*:}-$r
     sh "$HERE/run.sh" "${run%%:*}" "${run#*:}" "$name" > "logs/$name.log" 2>&1 &
+    pids="$pids $!"
   done
-  wait
+  # A bare wait returns 0 whatever the runs did; wait for each one.
+  for pid in $pids; do wait "$pid" || failed=1; done
   for f in logs/$SERIES-*-$r.log; do printf '%s: %s\n' "$(basename "$f" .log)" "$(tail -1 "$f")"; done
   r=$((r + 1))
 done
 echo "== series done $(date -u +%TZ)"
+[ "$failed" = 0 ] || { echo "== some runs failed; see logs/" >&2; exit 1; }

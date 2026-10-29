@@ -194,15 +194,23 @@ func (d *dispatcher) send(tenant, job string) {
 		}
 	}
 	if why == "" {
-		_, err := d.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
-			p.Set(ctx, "result:"+job, "ok", time.Hour)
-			p.Publish(ctx, "done:"+job, "ok")
-			return nil
-		})
-		d.mu.Lock()
-		if err != nil {
+		// The job left its list in BLPop: keep trying until its result is
+		// stored and its waiters are woken, or they wait out their timeouts.
+		for {
+			_, err := d.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+				p.Set(ctx, "result:"+job, "ok", time.Hour)
+				p.Publish(ctx, "done:"+job, "ok")
+				return nil
+			})
+			if err == nil {
+				break
+			}
+			d.mu.Lock()
 			d.counts.RedisErrors++
+			d.mu.Unlock()
+			time.Sleep(100 * time.Millisecond)
 		}
+		d.mu.Lock()
 		d.counts.Completed++
 		d.counts.DoneByTen[tenant]++
 		d.interval["completed"]++

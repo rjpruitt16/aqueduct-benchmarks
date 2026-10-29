@@ -46,7 +46,7 @@ Neither is assumed to win. Envoy is built for traffic between services you own a
 
 ## Live headers
 
-From the `env2` series on, every backend reports its load the way Aquifer expects a service to. Aquifer sends `X-Aqueduct-Active-Queues` on each request, the number of its queues sharing this service, and the backend answers with each queue's share:
+From the `env2` series on, every backend reports its load the way Aquifer expects a service to. The survival regime is the exception: by default (`ADVERTISE=total`) its backend advertises its totals, which Aquifer v0.16.0 shares across its queues, and `X-Aqueduct-Max-Backlog` is 30 minutes of capacity (`BACKLOG_SECONDS=1800`); see [DESIGN-survival.md](DESIGN-survival.md). The rest of this section describes the other regimes. Aquifer sends `X-Aqueduct-Active-Queues` on each request, the number of its queues sharing this service, and the backend answers with each queue's share:
 
 - `X-Aqueduct-Rps`: capacity (workers ÷ service time) ÷ active queues, scaled down by workers ÷ (busy + waiting) once requests wait, so a line as long as the workers halves it.
 - `X-Aqueduct-Max-Concurrent`: workers ÷ active queues, rounded up.

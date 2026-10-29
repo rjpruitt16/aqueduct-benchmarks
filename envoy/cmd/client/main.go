@@ -1198,8 +1198,13 @@ func (c *client) backoff(j *job, attempt int, retryAfter time.Duration) bool {
 		return false
 	}
 	if c.patience > 0 && time.Since(j.created)+d >= c.patience {
-		j.attempts++
-		return false
+		// Like pace: cut the wait short to leave one last try just before
+		// the caller gives up, rather than giving up a whole wait early.
+		d = c.patience - time.Since(j.created) - 50*time.Millisecond
+		if d <= 0 {
+			j.attempts++
+			return false
+		}
 	}
 	c.wait(j, d)
 	return true

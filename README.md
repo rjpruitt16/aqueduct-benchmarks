@@ -26,7 +26,7 @@ Where it doesn't help, or the comparison is limited:
 - **A team can build most of this itself.** Envoy plus idempotency keys in Redis, a fair queue and a dispatcher (about 500 lines) matched Aquifer under stacked retries. What Aquifer saves is building and owning that.
 - **It needs a stable key and the backend's headers.** Without either, it lost most of its advantage.
 - **Large tenants wait longer.** Equal turns mean a tenant sending half the traffic can be held to about a sixth of the capacity while six tenants compete.
-- **For callers that give up after a fixed time, it's a tie at best.** With capacity 10 minutes away, Envoy answered more of the callers that gave themselves only 5 minutes. Aquifer ran all the work, for callers that come back.
+- **For callers that give up after a fixed time, it depends on the client and the delay.** With clients that follow Aquifer's timing, Aquifer answered 100% at a 3-minute delay against Envoy's 95%, and 91–100% at 5 minutes against 88%. With the same backoff client on both, it was a tie at 5 minutes. At 10 minutes Envoy answered more of the callers that gave themselves only 5 minutes. Aquifer ran all the work, for callers that come back.
 - **Effort wasn't even, and the backend is synthetic.** The last round reran Aquifer with a fix and three client variants, but not Envoy. The backend has a fixed service time and no database.
 
 Raw data, the harness and every caveat are in [envoy/](envoy/). The design documents explain each regime before its results.

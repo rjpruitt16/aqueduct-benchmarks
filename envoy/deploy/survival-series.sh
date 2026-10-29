@@ -40,10 +40,21 @@ one() {
   shift 2
   [ -f "results/$name/run.txt" ] && return
   env "$@" sh "$HERE/run.sh" "$mode" survival "$name" > "logs/$name.log" 2>&1 &
+  pids="$pids $!"
 }
+# batch_done waits for every run in the batch (a bare wait returns 0 whatever
+# they did) and stops the series if one failed. A restart retries it, since a
+# failed run leaves no results/<name>/run.txt.
+pids=""
 batch_done() {
-  wait
+  status=0
+  for pid in $pids; do wait "$pid" || status=1; done
+  pids=""
   for f in "$@"; do printf '%s: %s\n' "$f" "$(tail -1 "logs/$f.log")"; done
+  if [ "$status" != 0 ]; then
+    echo "== a run failed; stopping. Rerun the same command to retry it $(date -u +%TZ)"
+    exit 1
+  fi
 }
 
 if [ "${PART:-main}" = unbounded ]; then
