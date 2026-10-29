@@ -65,10 +65,11 @@ wait_for() { i=0; until curl -sf "$1" >/dev/null; do i=$((i + 1)); [ "$i" -gt "$
 PGBIN=$(ls -d /usr/lib/postgresql/*/bin | tail -1)
 mkdir -p "$W/pg" && chown postgres "$W/pg"
 su postgres -c "$PGBIN/initdb -D $W/pg -A trust -U postgres" >/dev/null
-su postgres -c "$PGBIN/pg_ctl -D $W/pg -o '-p 15432 -k /tmp' -l $W/pg.log -w start" >/dev/null
+su postgres -c "$PGBIN/pg_ctl -D $W/pg -o '-p 15432 -k /tmp' -l $W/pg/server.log -w start" >/dev/null
 su postgres -c "$PGBIN/createdb -h /tmp -p 15432 -U postgres a2a"
 if [ "$CONFIG" = B ]; then
   redis-server --port 16379 --save '' --appendonly no --daemonize yes >/dev/null
+  i=0; until redis-cli -p 16379 ping >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -gt 30 ] && { echo "redis didn't start" >&2; exit 1; }; sleep 1; done
 fi
 
 if [ -n "${LLM_TARGET:-}" ]; then

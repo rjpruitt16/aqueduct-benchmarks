@@ -47,6 +47,7 @@ until docker run --rm --network host -e PGPASSWORD=a2a postgres:16.4 pg_isready 
 done
 if [ "$CONFIG" = B ]; then
   docker run -d --name a2a-redis -p 127.0.0.1:16379:6379 redis:7-alpine >/dev/null
+  i=0; until docker exec a2a-redis redis-cli ping >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -gt 30 ] && { echo "redis didn't start" >&2; exit 1; }; sleep 1; done
 fi
 
 start mockllm "$BIN/mockllm" LISTEN=:18000 MAX_SEQS=2 TOKENS_PER_S=200

@@ -51,8 +51,26 @@ func NewRedisQueue(url string) (*RedisQueue, error) {
 }
 
 // Submit queues the call unless its key is already queued or done, then
-// waits for its result.
+// waits for its result. A Redis error (a dropped connection, Redis not up
+// yet) is retried every half second until ctx ends: the key makes a retry
+// safe, since a call already queued is waited for, not queued again.
 func (q *RedisQueue) Submit(ctx context.Context, c Call) (Result, error) {
+	for {
+		r, err := q.submitOnce(ctx, c)
+		if err == nil || ctx.Err() != nil {
+			return r, err
+		}
+		t := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return Result{}, ctx.Err()
+		case <-t.C:
+		}
+	}
+}
+
+func (q *RedisQueue) submitOnce(ctx context.Context, c Call) (Result, error) {
 	// Subscribe before checking for a result, so one published in between
 	// isn't missed.
 	sub := q.rdb.Subscribe(ctx, "q:done:"+c.Key)

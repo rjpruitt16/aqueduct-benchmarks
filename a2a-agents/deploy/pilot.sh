@@ -85,8 +85,9 @@ if [ "$KIND" = pilot ]; then
       cloudType: "SECURE", interruptible: false, containerDiskInGb: 60, volumeInGb: 0, ports: ["8000/http"],
       dataCenterIds: ["US-IL-1","US-TX-1","US-TX-3","US-TX-4","US-KS-2","US-KS-3","US-GA-1","US-GA-2","US-WA-1","US-CA-2","US-NC-1","US-DE-1","US-MD-1","US-MO-1","US-MO-2","CA-MTL-1","CA-MTL-2","CA-MTL-3"],
       allowedCudaVersions: ["13.0","12.9"],
-      dockerEntrypoint: ["python3","-m","vllm.entrypoints.openai.api_server"],
-      dockerStartCmd: ["--model",$model,"--max-num-seqs",$max,"--max-model-len","4096","--port","8000","--api-key",$key,"--disable-log-requests"]}')
+      dockerStartCmd: [$model,"--max-num-seqs",$max,"--max-model-len","4096","--port","8000","--api-key",$key]}')
+  # The image's entrypoint is `vllm serve` (v0.31.0); the flags above are
+  # checked against that release's source.
   log "creating the GPU pod"
   resp=$(rp -X POST https://rest.runpod.io/v1/pods -d "$body")
   POD=$(echo "$resp" | jq -r '.id // empty')

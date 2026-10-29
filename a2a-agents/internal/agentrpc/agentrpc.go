@@ -87,14 +87,17 @@ var (
 	clients   = map[string]*a2aclient.Client{}
 )
 
-// Client returns a JSON-RPC A2A client for the agent at url, reused across calls.
+// Client returns a JSON-RPC A2A client for the agent at url, reused across
+// calls. Its HTTP client has no timeout: the SDK's default (3 minutes) would
+// cut off workflows that are still running; callers bound calls with ctx.
 func Client(ctx context.Context, url string) (*a2aclient.Client, error) {
 	clientsMu.Lock()
 	defer clientsMu.Unlock()
 	if c, ok := clients[url]; ok {
 		return c, nil
 	}
-	c, err := a2aclient.NewFromEndpoints(ctx, []*a2a.AgentInterface{a2a.NewAgentInterface(url, a2a.TransportProtocolJSONRPC)})
+	c, err := a2aclient.NewFromEndpoints(ctx, []*a2a.AgentInterface{a2a.NewAgentInterface(url, a2a.TransportProtocolJSONRPC)},
+		a2aclient.WithJSONRPCTransport(&http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 256}}))
 	if err != nil {
 		return nil, err
 	}
