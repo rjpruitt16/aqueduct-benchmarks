@@ -324,8 +324,8 @@ async def run(args):
     stop_scrape = asyncio.Event()
     scrape_task = asyncio.create_task(scrape_vllm_metrics(args.vllm_url, args.out_metrics, stop_scrape))
 
-    # Aquifer mode holds a stream open per waiting job, up to --sse-timeout,
-    # so a run needs about as many open files as requests in flight. Raise the
+    # Every request in flight holds a connection (in aquifer mode a stream
+    # per waiting job), so a run needs about as many open files. Raise the
     # soft limit to the hard one, and warn if even that may not be enough,
     # since running out turns into stream errors that aren't Aquifer's or the
     # GPU's.
@@ -334,9 +334,12 @@ async def run(args):
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         if soft < hard:
             resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
-        expected = int(args.end_rate * min(args.sse_timeout, args.ramp_seconds))
-        if args.mode == "aquifer" and hard != resource.RLIM_INFINITY and hard < expected + 1000:
-            print(f"# warning: open file limit {hard} may be below the ~{expected} streams this run can hold open")
+        # A connection is held up to --sse-timeout (aquifer) or --client-timeout
+        # (direct, per attempt) at the peak arrival rate.
+        hold = args.sse_timeout if args.mode == "aquifer" else args.client_timeout
+        expected = int(args.end_rate * min(hold, args.ramp_seconds))
+        if hard != resource.RLIM_INFINITY and hard < expected + 1000:
+            print(f"# warning: open file limit {hard} may be below the ~{expected} connections this run can hold open")
     except (ImportError, ValueError, OSError):
         pass
     connector = aiohttp.TCPConnector(limit=0)
