@@ -3,7 +3,11 @@
 # Postgres, Hatchet (engine and API), workers, optionally Aquifer, and the
 # driver with the Postgres sampler; copies the results out; destroys the app.
 #
-# Usage: deploy/fly/run.sh <B|C> <run-name>
+# Usage: deploy/fly/run.sh <B|C|D> <run-name>
+#
+#   B  tuned Hatchet, producers trigger it directly
+#   C  tuned Hatchet behind Aquifer
+#   D  tuned Hatchet behind Envoy (deploy/fly/envoy.yaml.tmpl)
 #
 # Environment:
 #   FLY_ORG         Fly organization (required)
@@ -23,6 +27,14 @@
 #                   waiting slots (default 1000); Aquifer's own ceiling stays RATE
 #   ENGINE_DB_CONNS, TRIGGER_SLOTS, BUFFER_SIZE, BUFFER_FLUSH
 #                   tuned engine settings (see TUNING.md); fixed by calibration
+#   MAX_ATTEMPTS    producer trigger attempts before a document is rejected (driver default 6)
+#   AQUIFER_MAX_RETRIES  C: Aquifer's retries per job (driver default 20; -1 until it succeeds)
+#   TENANT_RPS, GLOBAL_RPS  D: Envoy's per-tenant and total trigger rates (default 15 and RATE)
+#   PG_SIZE         Postgres machine: performance-1x, -2x (default) or -4x
+#   RESIZE_AT, RESIZE_TO  resize Postgres to RESIZE_TO (e.g. performance-4x) RESIZE_AT seconds
+#                   after the driver starts; Postgres restarts on the same volume
+#   OUTAGE_AT, OUTAGE_FOR  stop Postgres OUTAGE_AT seconds after the driver starts,
+#                   for OUTAGE_FOR seconds
 #
 # Machines (all dedicated CPUs, so runs are repeatable):
 #   pg       performance-2x, 4 GB, 20 GB volume   Postgres 16 (also Hatchet's message queue)
@@ -30,6 +42,7 @@
 #   api      performance-1x, 2 GB                 Hatchet REST API (the fork's image in C)
 #   worker-N performance-1x, 2 GB                 pipeline workers
 #   aquifer  performance-1x, 2 GB                 C only; in B the API gets the same budget back
+#   envoy    performance-1x, 2 GB                 D only, in front of the API (performance-1x, as in C)
 #   driver   performance-2x, 4 GB, 1 GB volume    producers, ledger, Postgres sampler
 set -eu
 
@@ -44,8 +57,17 @@ WORKERS=${WORKERS:-3}
 APP=aqb-hatchet-$NAME
 TENANT=707d0855-80ab-4e1f-a156-f1c4546cbf52
 OUT=results/$NAME
-case "$CONFIG" in B | C) ;; *) echo "CONFIG must be B or C" >&2; exit 2 ;; esac
-for tool in fly jq openssl docker; do
+case "$CONFIG" in B | C | D) ;; *) echo "CONFIG must be B, C or D" >&2; exit 2 ;; esac
+PG_SIZE=${PG_SIZE:-performance-2x}
+# Memory and Postgres's caches follow the machine size.
+case "$PG_SIZE" in
+  performance-1x) PG_MEM=2048 PG_BUFFERS=512MB PG_CACHE=1536MB ;;
+  performance-2x) PG_MEM=4096 PG_BUFFERS=1GB PG_CACHE=3GB ;;
+  performance-4x) PG_MEM=8192 PG_BUFFERS=2GB PG_CACHE=6GB ;;
+  *) echo "PG_SIZE must be performance-1x, -2x or -4x" >&2; exit 2 ;;
+esac
+mem_for() { case "$1" in performance-1x) echo 2048 ;; performance-2x) echo 4096 ;; performance-4x) echo 8192 ;; esac; }
+for tool in fly jq openssl docker curl; do
   command -v "$tool" >/dev/null || { echo "run.sh needs $tool" >&2; exit 2; }
 done
 # Docker generates Hatchet's keys; check the daemon before creating anything.
@@ -64,6 +86,7 @@ fail() {
 
 cleanup() {
   status=$?
+  [ -n "${events_pid:-}" ] && kill "$events_pid" 2>/dev/null || true
   # The engine's and workers' logs go with the app; keep what Fly still has.
   fly logs -a "$APP" --no-tail > "$OUT/fly.log" 2>/dev/null || true
   if [ "${KEEP:-}" = 1 ]; then
@@ -133,12 +156,13 @@ fly secrets set -a "$APP" --stage \
 rm -rf "$keys"
 
 echo "== postgres"
-PGVOL=$(volume pgdata 20 performance-2x)
-fly machine run postgres:16.4 -a "$APP" -n pg -r "$REGION" --vm-size performance-2x --vm-memory 4096 \
+# Place the volume on a host with room for the size Postgres may grow to.
+PGVOL=$(volume pgdata 20 "${RESIZE_TO:-$PG_SIZE}")
+fly machine run postgres:16.4 -a "$APP" -n pg -r "$REGION" --vm-size "$PG_SIZE" --vm-memory "$PG_MEM" \
   -v "$PGVOL":/var/lib/postgresql/data --restart no --detach \
   -e POSTGRES_USER=hatchet -e POSTGRES_DB=hatchet -e PGDATA=/var/lib/postgresql/data/pgdata \
   -- postgres -c listen_addresses='*' -c max_connections=400 -c shared_preload_libraries=pg_stat_statements \
-  -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=16MB >/dev/null
+  -c shared_buffers=$PG_BUFFERS -c effective_cache_size=$PG_CACHE -c work_mem=16MB >/dev/null
 sleep 20
 DB="postgres://hatchet:$PGPW@$(host pg):5432/hatchet?sslmode=disable"
 
@@ -175,7 +199,9 @@ ENGINE_HOST=$(host engine)
 API_IMAGE=ghcr.io/hatchet-dev/hatchet/hatchet-api:$HATCHET
 API_SIZE="--vm-size performance-1x --vm-memory 2048"
 API_PACING=""
-if [ "$CONFIG" = C ]; then
+if [ "$CONFIG" = D ]; then
+  : # stock API at performance-1x; Envoy gets the other performance-1x
+elif [ "$CONFIG" = C ]; then
   API_IMAGE=$FORK_API_IMAGE
   if [ "${PACING:-}" = 1 ]; then
     API_PACING="-e AQUEDUCT_PACING_ENABLED=true -e AQUEDUCT_MAX_RPS=${RATE:-50} -e AQUEDUCT_TARGET_DEPTH=${PACING_TARGET_DEPTH:-1000}"
@@ -216,6 +242,26 @@ if [ "$CONFIG" = C ]; then
   AQUIFER_HOST=$(host aquifer)
 fi
 
+if [ "$CONFIG" = D ]; then
+  echo "== envoy"
+  ecfg=$(mktemp)
+  {
+    for t in law-firm accounting small-1 small-2 small-3 small-4 small-5; do
+      printf '                                - entries: [{ key: tenant, value: %s }]\n' "$t"
+      printf '                                  token_bucket: { max_tokens: %s, tokens_per_fill: %s, fill_interval: 1s }\n' $((${TENANT_RPS:-15} * 2)) "${TENANT_RPS:-15}"
+    done
+  } > "$ecfg.d"
+  printf '              - endpoint: { address: { socket_address: { address: %s, port_value: 8080 } } }\n' "$(host api)" > "$ecfg.e"
+  sed -e "s/__GLOBAL_RPS__/${GLOBAL_RPS:-${RATE:-50}}/g" -e "/__DESCRIPTORS__/{r $ecfg.d
+d;}" -e "/__ENDPOINTS__/{r $ecfg.e
+d;}" "$(dirname "$0")/envoy.yaml.tmpl" > "$ecfg"
+  sed "s/[0-9a-f]*\.vm\.$APP\.internal/<api>/" "$ecfg" > "$OUT/envoy.yaml"
+  fly machine run envoyproxy/envoy:v1.39.3 -a "$APP" -n envoy -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
+    --restart on-failure --detach --file-local /etc/envoy/envoy.yaml="$ecfg" >/dev/null
+  rm -f "$ecfg" "$ecfg.d" "$ecfg.e"
+  ENVOY_HOST=$(host envoy)
+fi
+
 echo "== workers"
 i=1
 while [ "$i" -le "$WORKERS" ]; do
@@ -233,13 +279,45 @@ set -- -e ROLE=driver -e HOLD=1 -e OUT=/out -e HATCHET_API="$API" -e HATCHET_CLI
 [ -n "${PHASES:-}" ] && set -- "$@" -e PHASES="$PHASES"
 [ -n "${SCALE:-}" ] && set -- "$@" -e SCALE="$SCALE"
 [ -n "${DRAIN_MAX:-}" ] && set -- "$@" -e DRAIN_MAX="$DRAIN_MAX"
+[ -n "${MAX_ATTEMPTS:-}" ] && set -- "$@" -e MAX_ATTEMPTS="$MAX_ATTEMPTS"
+[ -n "${AQUIFER_MAX_RETRIES:-}" ] && set -- "$@" -e AQUIFER_MAX_RETRIES="$AQUIFER_MAX_RETRIES"
+[ "$CONFIG" = D ] && set -- "$@" -e TRIGGER_API="http://$ENVOY_HOST:8080"
 if [ "$CONFIG" = C ]; then
   set -- "$@" -e AQUIFER_URL="http://$AQUIFER_HOST:8080" -e PUBLIC_URL="http://$DRIVER_HOST:8080"
 fi
 fly machine update "$(machine_id driver)" -a "$APP" -y --skip-start "$@" >/dev/null
 fly machine start "$(machine_id driver)" -a "$APP" >/dev/null
 started=$(date -u +%FT%TZ)
+started_s=$(date +%s)
 echo "   started $started; waiting for the driver to finish"
+
+# Scheduled changes to Postgres while the run goes on, each logged with the
+# time it took effect.
+if [ -n "${RESIZE_AT:-}${OUTAGE_AT:-}" ]; then
+  (
+    pg=$(machine_id pg)
+    log() { echo "$(date -u +%FT%TZ) $(( $(date +%s) - started_s ))s $*" >> "$OUT/events.txt"; }
+    if [ -n "${RESIZE_AT:-}" ]; then
+      sleep "$RESIZE_AT"
+      log "resize to ${RESIZE_TO:?set RESIZE_TO} begins"
+      if fly machine update "$pg" -a "$APP" -y --vm-size "$RESIZE_TO" --vm-memory "$(mem_for "$RESIZE_TO")" >/dev/null 2>&1; then
+        log "resize to $RESIZE_TO done"
+      else
+        log "resize to $RESIZE_TO FAILED"
+      fi
+    fi
+    if [ -n "${OUTAGE_AT:-}" ]; then
+      wait_s=$(( OUTAGE_AT - ($(date +%s) - started_s) ))
+      [ "$wait_s" -gt 0 ] && sleep "$wait_s"
+      log "postgres stop"
+      fly machine stop "$pg" -a "$APP" >/dev/null 2>&1 && log "postgres stopped" || log "postgres stop FAILED"
+      sleep "${OUTAGE_FOR:?set OUTAGE_FOR}"
+      log "postgres start"
+      fly machine start "$pg" -a "$APP" >/dev/null 2>&1 && log "postgres started" || log "postgres start FAILED"
+    fi
+  ) &
+  events_pid=$!
+fi
 
 # The driver writes /out/DONE and then holds the machine open so the results
 # can be copied. Allow the full schedule plus drain.
@@ -267,6 +345,18 @@ if [ "$CONFIG" = C ]; then
   fly ssh console -a "$APP" --machine "$(machine_id aquifer)" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
     | grep -E '^aquifer_(admission_rejected_total|dispatch_attempts_total)' | sed 's/target="[^"]*"/target="hatchet-api"/' > "$OUT/aquifer_metrics.txt" || true
 fi
+# CPU per machine over the run, from Fly's metrics (cores in use, 30 s steps),
+# for useful work per CPU-second. The token goes only in the request header.
+case "${FLY_API_TOKEN:-}" in FlyV1*) auth="$FLY_API_TOKEN" ;; *) auth="Bearer ${FLY_API_TOKEN:-}" ;; esac
+q="sum by (instance) (rate(fly_instance_cpu{app=\"$APP\",mode!=\"idle\"}[1m]))"
+curl -s -G -H "Authorization: $auth" "https://api.fly.io/prometheus/$FLY_ORG/api/v1/query_range" \
+  --data-urlencode "query=$q" --data-urlencode "start=$started_s" --data-urlencode "end=$(date +%s)" \
+  --data-urlencode "step=30" > "$OUT/cpu.raw.json" 2>/dev/null || true
+fly machine list -a "$APP" --json | jq -r '[.[] | {(.id): .name}] | add' > "$OUT/cpu.names.json" 2>/dev/null || true
+jq -n --slurpfile raw "$OUT/cpu.raw.json" --slurpfile names "$OUT/cpu.names.json" \
+  '[$raw[0].data.result[]? | {machine: ($names[0][.metric.instance] // .metric.instance), values}]' \
+  > "$OUT/cpu.json" 2>/dev/null || true
+rm -f "$OUT/cpu.raw.json" "$OUT/cpu.names.json"
 # Machine sizes and images only: the full config holds the token and the
 # database password.
 fly machine list -a "$APP" --json \
@@ -287,6 +377,12 @@ fly machine list -a "$APP" --json \
   [ "$CONFIG" = C ] && echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
   [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000}"
+  echo "pg_size=$PG_SIZE"
+  [ -n "${MAX_ATTEMPTS:-}" ] && echo "max_attempts=$MAX_ATTEMPTS"
+  [ -n "${AQUIFER_MAX_RETRIES:-}" ] && echo "aquifer_max_retries=$AQUIFER_MAX_RETRIES"
+  [ "$CONFIG" = D ] && echo "envoy_tenant_rps=${TENANT_RPS:-15} envoy_global_rps=${GLOBAL_RPS:-${RATE:-50}}"
+  [ -n "${RESIZE_AT:-}" ] && echo "resize_at=$RESIZE_AT resize_to=$RESIZE_TO"
+  [ -n "${OUTAGE_AT:-}" ] && echo "outage_at=$OUTAGE_AT outage_for=$OUTAGE_FOR"
 } > "$OUT/run.txt"
 status=$(cat "$OUT/DONE")
 [ "$status" = 0 ] || fail "driver exited with status $status; see $OUT/driver.log"

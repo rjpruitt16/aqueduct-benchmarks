@@ -19,7 +19,9 @@
 //	DRAIN_MAX             how long to wait for outstanding work after the last phase (default 30m)
 //	AQUIFER_URL           submit through Aquifer at this base URL (C0, C); unset sends straight to Hatchet
 //	PUBLIC_URL            this driver's address as Aquifer reaches it (default http://localhost:8080)
-//	AQUIFER_MAX_RETRIES   Aquifer's retries forwarding each job to Hatchet (default 20)
+//	AQUIFER_MAX_RETRIES   Aquifer's retries forwarding each job to Hatchet (default 20; -1 until it succeeds)
+//	TRIGGER_API           send triggers here instead of HATCHET_API (a proxy in front of it, as in D);
+//	                      status polls still go to HATCHET_API
 package main
 
 import (
@@ -88,7 +90,8 @@ func main() {
 	}
 
 	h := &hatchetAPI{base: strings.TrimRight(api, "/"), token: token, tenant: tenantID,
-		http: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{MaxIdleConnsPerHost: 512}}}
+		http:        &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{MaxIdleConnsPerHost: 512}},
+		triggerBase: strings.TrimRight(os.Getenv("TRIGGER_API"), "/")}
 	l := newLedger()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -147,7 +150,7 @@ func main() {
 	if base := os.Getenv("AQUIFER_URL"); base != "" {
 		r.aq = &aquiferAPI{base: strings.TrimRight(base, "/"), hatchet: h,
 			webhookURL: strings.TrimRight(env("PUBLIC_URL", "http://localhost:8080"), "/") + "/aquifer",
-			maxRetries: envInt("AQUIFER_MAX_RETRIES", 20), http: h.http}
+			maxRetries: aquiferMaxRetries(), http: h.http}
 		log.Printf("submitting through Aquifer at %s", base)
 	}
 	var wg sync.WaitGroup
@@ -369,6 +372,15 @@ func envInt(name string, fallback int) int {
 		return v
 	}
 	return fallback
+}
+
+// aquiferMaxRetries is AQUIFER_MAX_RETRIES: 20 by default, -1 to retry until
+// the job succeeds.
+func aquiferMaxRetries() int {
+	if v, err := strconv.Atoi(os.Getenv("AQUIFER_MAX_RETRIES")); err == nil && v >= -1 {
+		return v
+	}
+	return 20
 }
 
 func envFloat(name string, fallback float64) float64 {
