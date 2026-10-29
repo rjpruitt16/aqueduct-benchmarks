@@ -77,9 +77,10 @@ FLY_ORG=... IMAGE=... deploy/series.sh env
 FLY_ORG=... IMAGE=... RUNS="aquifer:changing envoy:scaleout aquifer:scaleout both:scaleout" deploy/series.sh env2
 ```
 
-One run:
+One run, from the `envoy/` directory:
 
 ```sh
+cd envoy
 FLY_ORG=... IMAGE=ghcr.io/rjpruitt16/aqueduct-benchmarks-envoy:<commit> deploy/run.sh envoy changing env-c1
 ```
 
