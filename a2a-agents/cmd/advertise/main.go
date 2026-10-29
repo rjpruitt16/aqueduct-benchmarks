@@ -4,7 +4,8 @@
 // all three the same.
 //
 // Environment: LISTEN (:8001), TARGET (http://127.0.0.1:8000), MAX_CONCURRENT
-// (the resource's capacity, e.g. vLLM's --max-num-seqs).
+// (the resource's capacity, e.g. vLLM's --max-num-seqs), API_KEY (sent to the
+// target as a bearer token: vLLM's --api-key, since its port is public).
 package main
 
 import (
@@ -28,6 +29,14 @@ func main() {
 		log.Fatalf("MAX_CONCURRENT must be the resource's capacity")
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	if key := os.Getenv("API_KEY"); key != "" {
+		direct := proxy.Director
+		proxy.Director = func(r *http.Request) {
+			direct(r)
+			r.Host = target.Host
+			r.Header.Set("Authorization", "Bearer "+key)
+		}
+	}
 	proxy.Transport = &http.Transport{MaxIdleConnsPerHost: 256}
 	addr := env("LISTEN", ":8001")
 	log.Printf("advertise on %s: %s, max concurrent %d", addr, target, n)

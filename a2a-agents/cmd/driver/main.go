@@ -9,8 +9,9 @@
 // A2A acknowledgment (the task's first event), the result and the
 // verification are timed separately.
 //
-// Load: PHASES (name:seconds:workflows-per-second,...) spread across TENANTS
-// (name:weight,...); or COUNT workflows submitted at once (smoke tests).
+// Load: PHASES (name:seconds:workflows-per-second[:tenant=weight/tenant=weight],...)
+// spread across TENANTS (name:weight,...), or across the phase's own weights
+// when it gives them; or COUNT workflows submitted at once (smoke tests).
 //
 // Environment: COORDINATOR_URL, SANDBOX_URL, CI_URL, PHASES or COUNT, TENANTS
 // (big:1), DRAIN (10m), OUT (out), METRICS (name=url,... scraped at the end).
@@ -92,13 +93,17 @@ func main() {
 	} else {
 		for _, ph := range parsePhases(env("PHASES", "steady:60:0.5")) {
 			log.Printf("phase %s: %.2f workflows/s for %s", ph.name, ph.rate, ph.length)
+			ts := tenants
+			if ph.tenants != nil {
+				ts = ph.tenants
+			}
 			end := time.Now().Add(ph.length)
 			owed, i := 0.0, 0
 			for time.Now().Before(end) {
 				time.Sleep(100 * time.Millisecond)
 				owed += ph.rate / 10
 				for ; owed >= 1; owed-- {
-					submit(ph.name, pick(tenants, i))
+					submit(ph.name, pick(ts, i))
 					i++
 				}
 			}
@@ -317,21 +322,26 @@ func pct(xs []float64, q float64) float64 {
 }
 
 type phase struct {
-	name   string
-	length time.Duration
-	rate   float64
+	name    string
+	length  time.Duration
+	rate    float64
+	tenants []tenantWeight // nil: TENANTS
 }
 
 func parsePhases(spec string) []phase {
 	var out []phase
 	for _, p := range strings.Split(spec, ",") {
 		f := strings.Split(p, ":")
-		if len(f) != 3 {
-			log.Fatalf("PHASES: %q is not name:seconds:rate", p)
+		if len(f) != 3 && len(f) != 4 {
+			log.Fatalf("PHASES: %q is not name:seconds:rate[:tenant=weight/...]", p)
 		}
 		secs, _ := strconv.ParseFloat(f[1], 64)
 		rate, _ := strconv.ParseFloat(f[2], 64)
-		out = append(out, phase{f[0], time.Duration(secs * float64(time.Second)), rate})
+		ph := phase{name: f[0], length: time.Duration(secs * float64(time.Second)), rate: rate}
+		if len(f) == 4 {
+			ph.tenants = parseTenants(strings.NewReplacer("/", ",", "=", ":").Replace(f[3]))
+		}
+		out = append(out, ph)
 	}
 	return out
 }
