@@ -12,10 +12,12 @@
 #   smoke     D with a 60 s Postgres outage and C with a resize, at a tenth of the schedule
 #   baseline  D three times, C (Patch 2) twice, B once
 #   resize    B, D and C: Postgres resized from performance-2x to -4x ten minutes into the sustained overload
+#   resize2   the same resize with room to use it: C with Aquifer's and Patch 2's ceilings at
+#             twice the calibrated rate, and D with Envoy's limits sized for the bigger database
 #   outage    B, D and C: Postgres stopped for 5 and for 15 minutes, ten minutes into the sustained overload
 #   smalldb   C twice and B once with Postgres on performance-1x
 set -u
-PART=${1:?usage: next.sh <smoke|baseline|resize|outage|smalldb>}
+PART=${1:?usage: next.sh <smoke|baseline|resize|resize2|outage|smalldb>}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p logs
 # The calibrated settings from TUNING.md.
@@ -60,6 +62,12 @@ case "$PART" in
       for r in 1 2; do
         one "$c" "nx-resize-$(echo "$c" | tr BCD bcd)-$r" RESIZE_AT=$AT RESIZE_TO=performance-4x
       done
+    done
+    ;;
+  resize2)
+    for r in 1 2; do
+      one C "nx-resize-c40-$r" RESIZE_AT=$AT RESIZE_TO=performance-4x AQUIFER_RPS=40 PACING_MAX_RPS=40
+      one D "nx-resize-d40-$r" RESIZE_AT=$AT RESIZE_TO=performance-4x GLOBAL_RPS=40 TENANT_RPS=30
     done
     ;;
   outage)

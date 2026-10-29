@@ -25,6 +25,8 @@
 #   PACING=1        C only: the fork's API sends pacing headers (Aqueduct patch 2),
 #                   at most RATE triggers/s, falling above PACING_TARGET_DEPTH
 #                   waiting slots (default 1000); Aquifer's own ceiling stays RATE
+#   PACING_MAX_RPS  C with PACING=1: the most the fork's API ever advertises (default RATE);
+#                   set it, and AQUIFER_RPS, above RATE to let pacing follow a bigger database
 #   ENGINE_DB_CONNS, TRIGGER_SLOTS, BUFFER_SIZE, BUFFER_FLUSH
 #                   tuned engine settings (see TUNING.md); fixed by calibration
 #   MAX_ATTEMPTS    producer trigger attempts before a document is rejected (driver default 6)
@@ -204,7 +206,7 @@ if [ "$CONFIG" = D ]; then
 elif [ "$CONFIG" = C ]; then
   API_IMAGE=$FORK_API_IMAGE
   if [ "${PACING:-}" = 1 ]; then
-    API_PACING="-e AQUEDUCT_PACING_ENABLED=true -e AQUEDUCT_MAX_RPS=${RATE:-50} -e AQUEDUCT_TARGET_DEPTH=${PACING_TARGET_DEPTH:-1000}"
+    API_PACING="-e AQUEDUCT_PACING_ENABLED=true -e AQUEDUCT_MAX_RPS=${PACING_MAX_RPS:-${RATE:-50}} -e AQUEDUCT_TARGET_DEPTH=${PACING_TARGET_DEPTH:-1000}"
   fi
 else
   # B gets Aquifer's machine budget back on the API.
@@ -378,7 +380,7 @@ fly machine list -a "$APP" --json \
   echo "drain_max=${DRAIN_MAX:-30m}"
   [ "$CONFIG" = C ] && echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
-  [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000}"
+  [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000} max_rps=${PACING_MAX_RPS:-${RATE:-50}}"
   echo "pg_size=$PG_SIZE"
   [ -n "${MAX_ATTEMPTS:-}" ] && echo "max_attempts=$MAX_ATTEMPTS"
   [ -n "${AQUIFER_MAX_RETRIES:-}" ] && echo "aquifer_max_retries=$AQUIFER_MAX_RETRIES"
