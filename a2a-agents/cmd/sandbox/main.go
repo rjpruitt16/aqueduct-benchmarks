@@ -19,10 +19,13 @@
 // through cgroups. LIMITS=rlimit uses per-process limits instead (CPU seconds,
 // processes, file size, open files), for hosts whose cgroups Docker can't
 // configure (a Fly Sprite); memory is then bounded only by the time limit.
-// Either way: no network, read-only root, an unprivileged user, no capabilities.
+// Either way: no network, read-only root and no capabilities, as the user in
+// USER (default 65534:65534, nobody). USER=root keeps the container's root user
+// (still without capabilities), for hosts where Docker can't combine a
+// non-root user with no network (a Fly Sprite); local smoke tests only.
 //
 // Environment: LISTEN (:8200), SLOTS (4), EXEC_TIMEOUT (15s), RUNNER (docker),
-// LIMITS (cgroup), IMAGE (python:3.12-alpine), LOG (executions.jsonl).
+// LIMITS (cgroup), USER (65534:65534), IMAGE (python:3.12-alpine), LOG (executions.jsonl).
 package main
 
 import (
@@ -158,7 +161,10 @@ func (s *server) execute(ctx context.Context, id, module, tests string) (bool, s
 	case "docker":
 		name := "sbx-" + id
 		args := []string{"run", "--rm", "--name", name, "--network", "none", "--read-only", "--tmpfs", "/tmp:size=16m",
-			"--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--user", "65534:65534"}
+			"--security-opt", "no-new-privileges", "--cap-drop", "ALL"}
+		if u := envStr("USER", "65534:65534"); u != "root" {
+			args = append(args, "--user", u)
+		}
 		if s.limits == "rlimit" {
 			args = append(args, "--ulimit", "cpu=10:10", "--ulimit", "nproc=64:64", "--ulimit", "fsize=1048576:1048576", "--ulimit", "nofile=64:64")
 		} else {
