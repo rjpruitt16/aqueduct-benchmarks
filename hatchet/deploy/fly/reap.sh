@@ -32,14 +32,19 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   pgrep -f "run.sh [BCD] $NAME\$" >/dev/null 2>&1 && alive=1
   machines=$(fly machine list -a "$APP" --json 2>/dev/null) || continue
   created=$(echo "$machines" | jq -r '[.[].created_at] | min // empty')
-  age=0
+  # An app with no machines failed in setup: nothing to wait for.
+  age=$MAX_AGE
   [ -n "$created" ] && age=$(( (now - $(date -d "$created" +%s)) / 60 ))
   if [ -n "$alive" ] && [ "$age" -lt "$MAX_AGE" ]; then
     continue
   fi
   drv=$(echo "$machines" | jq -r '.[] | select(.name == "driver") | .id')
   done_status=""
-  [ -n "$drv" ] && done_status=$(fly ssh console -a "$APP" --machine "$drv" -C "cat /out/DONE" 2>/dev/null | tr -d '\r')
+  # A stopped driver has nothing to read; ssh to it can hang, so only ask a
+  # started one, and not for long.
+  if [ -n "$drv" ] && [ "$(echo "$machines" | jq -r '.[] | select(.name == "driver") | .state')" = started ]; then
+    done_status=$(timeout 60 fly ssh console -a "$APP" --machine "$drv" -C "cat /out/DONE" 2>/dev/null | tr -d '\r')
+  fi
   if [ -z "$done_status" ] && [ "$age" -lt "$GRACE" ] && [ "$age" -lt "$MAX_AGE" ]; then
     echo "$NAME: no run.sh, not finished, ${age} min old; waiting out the grace period"
     continue
@@ -49,13 +54,13 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   if [ -n "$done_status" ] && [ "${DRY_RUN:-}" != 1 ]; then
     for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE; do
       for try in 1 2 3; do
-        fly ssh sftp get -a "$APP" --machine "$drv" "/out/$f" "${OUT:?}/${f:?}" >/dev/null 2>&1 && break
+        timeout 120 fly ssh sftp get -a "$APP" --machine "$drv" "/out/$f" "${OUT:?}/${f:?}" >/dev/null 2>&1 && break
         rm -f "${OUT:?}/${f:?}"; sleep 5
       done
     done
     aq=$(echo "$machines" | jq -r '.[] | select(.name == "aquifer") | .id')
     if [ -n "$aq" ]; then
-      fly ssh console -a "$APP" --machine "$aq" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
+      timeout 60 fly ssh console -a "$APP" --machine "$aq" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
         | grep -E '^aquifer_(admission_rejected_total|dispatch_attempts_total)' | sed 's/target="[^"]*"/target="hatchet-api"/' > "$OUT/aquifer_metrics.txt" || true
     fi
     echo "$machines" | jq '[.[] | {id, name, region, image: .config.image, guest: .config.guest}]' > "$OUT/machines.json"
@@ -80,7 +85,7 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
       echo "recovered_by=reap.sh $(date -u +%FT%TZ)"
     } > "$OUT/run.txt"
   fi
-  [ "${DRY_RUN:-}" = 1 ] || fly logs -a "$APP" --no-tail > "$OUT/fly.log" 2>/dev/null || true
+  [ "${DRY_RUN:-}" = 1 ] || timeout 120 fly logs -a "$APP" --no-tail > "$OUT/fly.log" 2>/dev/null || true
   # A run.sh still alive past the hard limit is stuck; stop it before its app goes.
   if [ -n "$alive" ]; then
     for p in $(pgrep -f "run.sh [BCD] $NAME\$"); do act kill "$p"; done
