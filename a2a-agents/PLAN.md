@@ -35,7 +35,7 @@ a2a-agents/
 | Agents (coordinator and three specialists over A2A) | Built |
 | Configurations A, B, C (resource modes) | Built |
 | Driver and ledger | Built |
-| Local smoke test | Running A first, then B and C; results in the README once they pass |
+| Local smoke test | Passes in A, B and C: 8/8 workflows, identical fixes, no repeated executions. Results and two Aquifer findings in [README.md](README.md) |
 | Scenario injection (slowdowns, pauses, capacity changes, uncooperative clients) | Next: the services already accept `/admin` changes; the driver needs a schedule of them |
 | Fly and RunPod deployment | Next |
 | Analysis script | Next |
@@ -78,4 +78,6 @@ The pod is created and deleted by script, and the same reaper rules apply: nothi
 - **Aquifer's `/proxy` tries the resource directly first.** Until a resource signals overload, C behaves like A. That's Aquifer's design, not a flaw in the experiment, but it means C and A look alike at low load.
 - **Aquifer's per-destination limits.** On `main`, `max_concurrent` applies per tenant queue unless shared destination limits (#130, unmerged) are on. With several tenants, Aquifer can send more than a resource's capacity in total. **Mitigation:** run C with the shared-limits build if #130 has merged by then. Otherwise say so, and set per-tenant limits so the total stays at capacity.
 - **Non-deterministic arrival interleaving.** Runs are repeated, and distributions are compared, not single numbers.
+- **Aquifer's timeouts are tuned for fast APIs.** `/proxy` direct attempts default to 3 s and queued dispatches have a fixed 30 s client timeout. The pilot sets `AQUIFER_PROXY_DIRECT_ATTEMPT_TIMEOUT_SECONDS` above the slowest test run; the 30 s limit can't be changed without changing Aquifer, so repeated executions in C are counted and reported.
+- **Retry-After escalation.** Aquifer's Retry-After doubles with each consecutive refusal, so a short stall can send callers away for 60 s (seen in the smoke test). The pilot reports refusals and the Retry-After values callers saw.
 - **Coordinator and agents are single processes.** Their own failures aren't tested in this iteration.
