@@ -130,6 +130,14 @@ func (d *dispatcher) run() {
 			continue
 		}
 		tenant, job := strings.TrimPrefix(got[0], "q:"), got[1]
+		// A refusal can pause dispatching while BLPop is waiting; honor it
+		// before sending what it returned.
+		d.mu.Lock()
+		wait = time.Until(d.paused)
+		d.mu.Unlock()
+		if wait > 0 {
+			time.Sleep(wait)
+		}
 		d.mu.Lock()
 		d.counts.Taken++
 		d.inflight++
@@ -219,6 +227,12 @@ func (d *dispatcher) send(tenant, job string) {
 	}
 	// Refused or failed: back to the head of its list, and wait before the
 	// next dispatch.
+	// Pause first, so the job isn't taken again before Retry-After.
+	d.mu.Lock()
+	if until := time.Now().Add(retryAfter); until.After(d.paused) {
+		d.paused = until
+	}
+	d.mu.Unlock()
 	// The job exists only here now: keep trying to put it back, or it is lost
 	// while its queued: marker blocks requeueing it for an hour.
 	for d.rdb.LPush(ctx, "q:"+tenant, job).Err() != nil {
@@ -230,9 +244,6 @@ func (d *dispatcher) send(tenant, job string) {
 	d.mu.Lock()
 	d.counts.Failures[why]++
 	d.counts.Requeued++
-	if until := time.Now().Add(retryAfter); until.After(d.paused) {
-		d.paused = until
-	}
 	d.mu.Unlock()
 }
 

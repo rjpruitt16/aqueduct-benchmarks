@@ -411,7 +411,17 @@ func (s *svc) idem(ctx context.Context, tenant, job string) error {
 		s.rdb.Del(context.WithoutCancel(ctx), "lock:"+job)
 		return err
 	}
-	return s.store(context.WithoutCancel(ctx), job)
+	// The job ran: keep the lock until its result is stored, or a later try
+	// could take an expired lock and run it again.
+	bg := context.WithoutCancel(ctx)
+	for s.store(bg, job) != nil {
+		s.mu.Lock()
+		s.counts.SentFailures["redis_store"]++
+		s.mu.Unlock()
+		s.rdb.PExpire(bg, "lock:"+job, 30*time.Second)
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil
 }
 
 // queue puts the job on its tenant's list once and waits for its result;
