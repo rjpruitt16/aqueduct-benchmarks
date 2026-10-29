@@ -8,6 +8,8 @@
 #   B  tuned Hatchet, producers trigger it directly
 #   C  tuned Hatchet behind Aquifer
 #   D  tuned Hatchet behind Envoy (deploy/fly/envoy.yaml.tmpl)
+#   E  tuned Hatchet behind Aquifer behind Envoy: Envoy at the edge, Aquifer holding
+#      the work (see gateway-failures/DESIGN.md)
 #
 # Environment:
 #   FLY_ORG         Fly organization (required)
@@ -37,6 +39,16 @@
 #                   after the driver starts; Postgres restarts on the same volume
 #   OUTAGE_AT, OUTAGE_FOR  stop Postgres OUTAGE_AT seconds after the driver starts,
 #                   for OUTAGE_FOR seconds
+#   API_VM          Hatchet API machine size, performance-1x or -2x (default: -2x in B, -1x otherwise);
+#                   gateway-failures sets it so every configuration has the same budget
+#   ENVOY_KILL_AT   D and E: SIGKILL Envoy this many seconds after the driver starts;
+#                   Fly's restart policy brings it back
+#   ENVOY_DRAIN_AT  D and E: drain Envoy's listeners gracefully at this time, wait
+#                   ENVOY_DRAIN_S (default 15), then restart its machine
+#   AQUIFER_KILL_AT C and E: SIGKILL Aquifer at this time; it restarts on the same volume
+#   API_STOP_AT, API_STOP_FOR  stop Hatchet's API machine at this time, for this many seconds
+#   EDGE_TENANT_RPS, EDGE_GLOBAL_RPS  E: Envoy's per-tenant and total limits in front of
+#                   Aquifer, set for abuse, not capacity (default 100 and 400)
 #
 # Machines (all dedicated CPUs, so runs are repeatable):
 #   pg       performance-2x, 4 GB, 20 GB volume   Postgres 16 (also Hatchet's message queue)
@@ -59,7 +71,7 @@ WORKERS=${WORKERS:-3}
 APP=aqb-hatchet-$NAME
 TENANT=707d0855-80ab-4e1f-a156-f1c4546cbf52
 OUT=results/$NAME
-case "$CONFIG" in B | C | D) ;; *) echo "CONFIG must be B, C or D" >&2; exit 2 ;; esac
+case "$CONFIG" in B | C | D | E) ;; *) echo "CONFIG must be B, C, D or E" >&2; exit 2 ;; esac
 PG_SIZE=${PG_SIZE:-performance-2x}
 # Memory and Postgres's caches follow the machine size.
 case "$PG_SIZE" in
@@ -221,7 +233,7 @@ API_SIZE="--vm-size performance-1x --vm-memory 2048"
 API_PACING=""
 if [ "$CONFIG" = D ]; then
   : # stock API at performance-1x; Envoy gets the other performance-1x
-elif [ "$CONFIG" = C ]; then
+elif [ "$CONFIG" = C ] || [ "$CONFIG" = E ]; then
   API_IMAGE=$FORK_API_IMAGE
   if [ "${PACING:-}" = 1 ]; then
     API_PACING="-e AQUEDUCT_PACING_ENABLED=true -e AQUEDUCT_MAX_RPS=${PACING_MAX_RPS:-${RATE:-50}} -e AQUEDUCT_TARGET_DEPTH=${PACING_TARGET_DEPTH:-1000}"
@@ -230,6 +242,10 @@ else
   # B gets Aquifer's machine budget back on the API.
   API_SIZE="--vm-size performance-2x --vm-memory 4096"
 fi
+case "${API_VM:-}" in
+  performance-1x) API_SIZE="--vm-size performance-1x --vm-memory 2048" ;;
+  performance-2x) API_SIZE="--vm-size performance-2x --vm-memory 4096" ;;
+esac
 # shellcheck disable=SC2086
 fly machine run "$API_IMAGE" /hatchet/hatchet-api -a "$APP" -n api -r "$REGION" $API_SIZE --restart on-failure --detach \
   $HATCHET_ENV -e SERVER_GRPC_BROADCAST_ADDRESS="$ENGINE_HOST:7070" \
@@ -243,7 +259,7 @@ fly machine create "$HARNESS_IMAGE" -a "$APP" -n driver -r "$REGION" --vm-size p
   -v "$RESVOL":/out --restart no >/dev/null
 DRIVER_HOST=$(host driver)
 
-if [ "$CONFIG" = C ]; then
+if [ "$CONFIG" = C ] || [ "$CONFIG" = E ]; then
   echo "== aquifer"
   # Aquifer's job store lives on a volume, so jobs it has accepted survive a
   # machine restart.
@@ -262,22 +278,32 @@ if [ "$CONFIG" = C ]; then
   AQUIFER_HOST=$(host aquifer)
 fi
 
-if [ "$CONFIG" = D ]; then
+if [ "$CONFIG" = D ] || [ "$CONFIG" = E ]; then
   echo "== envoy"
+  # D: Envoy in front of Hatchet's API, with limits at Hatchet's capacity.
+  # E: Envoy in front of Aquifer, with limits only against abuse; Aquifer
+  # paces Hatchet, so Envoy doesn't also limit to capacity.
+  if [ "$CONFIG" = D ]; then
+    e_tenant=${TENANT_RPS:-15} e_global=${GLOBAL_RPS:-${RATE:-50}} e_upstream=$(host api)
+  else
+    e_tenant=${EDGE_TENANT_RPS:-100} e_global=${EDGE_GLOBAL_RPS:-400} e_upstream=$AQUIFER_HOST
+  fi
   ecfg=$(mktemp)
   {
     for t in law-firm accounting small-1 small-2 small-3 small-4 small-5; do
       printf '                                - entries: [{ key: tenant, value: %s }]\n' "$t"
-      printf '                                  token_bucket: { max_tokens: %s, tokens_per_fill: %s, fill_interval: 1s }\n' $((${TENANT_RPS:-15} * 2)) "${TENANT_RPS:-15}"
+      printf '                                  token_bucket: { max_tokens: %s, tokens_per_fill: %s, fill_interval: 1s }\n' $((e_tenant * 2)) "$e_tenant"
     done
   } > "$ecfg.d"
-  printf '              - endpoint: { address: { socket_address: { address: %s, port_value: 8080 } } }\n' "$(host api)" > "$ecfg.e"
-  sed -e "s/__GLOBAL_RPS__/${GLOBAL_RPS:-${RATE:-50}}/g" -e "/__DESCRIPTORS__/{r $ecfg.d
+  printf '              - endpoint: { address: { socket_address: { address: %s, port_value: 8080 } } }\n' "$e_upstream" > "$ecfg.e"
+  sed -e "s/__GLOBAL_RPS__/$e_global/g" -e "/__DESCRIPTORS__/{r $ecfg.d
 d;}" -e "/__ENDPOINTS__/{r $ecfg.e
 d;}" "$(dirname "$0")/envoy.yaml.tmpl" > "$ecfg"
-  sed "s/[0-9a-f]*\.vm\.$APP\.internal/<api>/" "$ecfg" > "$OUT/envoy.yaml"
+  sed "s/[0-9a-f]*\.vm\.$APP\.internal/<upstream>/" "$ecfg" > "$OUT/envoy.yaml"
+  # --drain-time-s bounds a graceful drain (ENVOY_DRAIN_AT).
   fly machine run envoyproxy/envoy:v1.39.3 -a "$APP" -n envoy -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
-    --restart on-failure --detach --file-local /etc/envoy/envoy.yaml="$ecfg" >/dev/null
+    --restart on-failure --detach --file-local /etc/envoy/envoy.yaml="$ecfg" \
+    -- envoy -c /etc/envoy/envoy.yaml --drain-time-s "${ENVOY_DRAIN_S:-15}" >/dev/null
   rm -f "$ecfg" "$ecfg.d" "$ecfg.e"
   ENVOY_HOST=$(host envoy)
 fi
@@ -305,6 +331,19 @@ set -- -e ROLE=driver -e HOLD=1 -e OUT=/out -e HATCHET_API="$API" -e HATCHET_CLI
 if [ "$CONFIG" = C ]; then
   set -- "$@" -e AQUIFER_URL="http://$AQUIFER_HOST:8080" -e PUBLIC_URL="http://$DRIVER_HOST:8080"
 fi
+# E: producers submit to Aquifer through Envoy; Aquifer's webhooks come
+# straight back to the driver.
+[ "$CONFIG" = E ] && set -- "$@" -e AQUIFER_URL="http://$ENVOY_HOST:8080" -e PUBLIC_URL="http://$DRIVER_HOST:8080"
+# The driver samples the gateways' readiness and counters every 2 s, so
+# counters that reset on a restart can be summed and recovery timed.
+scrape=""
+if [ -n "${ENVOY_HOST:-}" ]; then
+  scrape="envoy-ready|http://$ENVOY_HOST:9901/ready|;envoy-stats|http://$ENVOY_HOST:9901/stats?filter=%5E(cluster%5C.backend%5C.(upstream_rq_(total|retry|retry_success|5xx|timeout|pending_overflow|rx_reset|tx_reset)|upstream_cx_(total|destroy_remote_with_active_rq|destroy_local_with_active_rq))|http%5C.ingress%5C.downstream_rq_(total|5xx|4xx|2xx))%24|."
+fi
+if [ -n "${AQUIFER_HOST:-}" ]; then
+  scrape="${scrape:+$scrape;}aquifer-ready|http://$AQUIFER_HOST:8080/health|;aquifer-metrics|http://$AQUIFER_HOST:8080/metrics|^aquifer_(dispatch_attempts_total|admission_rejected_total|wal_sync_lag_seconds)"
+fi
+[ -n "$scrape" ] && set -- "$@" -e SCRAPE="$scrape"
 retry fly machine update "$(machine_id driver)" -a "$APP" -y --skip-start "$@" >/dev/null || fail "could not configure the driver"
 retry fly machine start "$(machine_id driver)" -a "$APP" >/dev/null || fail "could not start the driver"
 started=$(date -u +%FT%TZ)
@@ -313,10 +352,51 @@ echo "   started $started; waiting for the driver to finish"
 
 # Scheduled changes to Postgres while the run goes on, each logged with the
 # time it took effect.
-if [ -n "${RESIZE_AT:-}${OUTAGE_AT:-}" ]; then
+if [ -n "${RESIZE_AT:-}${OUTAGE_AT:-}${ENVOY_KILL_AT:-}${ENVOY_DRAIN_AT:-}${AQUIFER_KILL_AT:-}${API_STOP_AT:-}" ]; then
   (
     pg=$(machine_id pg)
     log() { echo "$(date -u +%FT%TZ) $(( $(date +%s) - started_s ))s $*" >> "$OUT/events.txt"; }
+    # until_s waits until this many seconds after the driver started.
+    until_s() {
+      w=$(( $1 - ($(date +%s) - started_s) ))
+      [ "$w" -gt 0 ] && sleep "$w"
+      return 0
+    }
+    # kill9 sends SIGKILL to every process named $2 on machine $1 (no
+    # pidof or pkill in some images; /proc always works).
+    kill9() {
+      fly ssh console -a "$APP" --machine "$(machine_id "$1")" -C \
+        "sh -c 'for p in /proc/[0-9]*; do [ \"\$(cat \$p/comm 2>/dev/null)\" = $2 ] && kill -9 \${p#/proc/}; done; true'" >/dev/null 2>&1
+    }
+    if [ -n "${ENVOY_KILL_AT:-}" ]; then
+      until_s "$ENVOY_KILL_AT"
+      log "envoy SIGKILL"
+      kill9 envoy envoy && log "envoy killed" || log "envoy SIGKILL FAILED"
+    fi
+    if [ -n "${ENVOY_DRAIN_AT:-}" ]; then
+      until_s "$ENVOY_DRAIN_AT"
+      # Envoy's admin API, reached from the driver machine (Envoy's image has
+      # no HTTP client): drain gracefully, then restart once the drain is done.
+      log "envoy graceful drain"
+      fly ssh console -a "$APP" --machine "$(machine_id driver)" -C \
+        "wget -qO- --post-data= http://$ENVOY_HOST:9901/drain_listeners?graceful" >/dev/null 2>&1 && log "envoy draining" || log "envoy drain FAILED"
+      sleep "${ENVOY_DRAIN_S:-15}"
+      log "envoy restart"
+      fly machine restart "$(machine_id envoy)" -a "$APP" >/dev/null 2>&1 && log "envoy restarted" || log "envoy restart FAILED"
+    fi
+    if [ -n "${AQUIFER_KILL_AT:-}" ]; then
+      until_s "$AQUIFER_KILL_AT"
+      log "aquifer SIGKILL"
+      kill9 aquifer aquifer && log "aquifer killed" || log "aquifer SIGKILL FAILED"
+    fi
+    if [ -n "${API_STOP_AT:-}" ]; then
+      until_s "$API_STOP_AT"
+      log "hatchet api stop"
+      fly machine stop "$(machine_id api)" -a "$APP" >/dev/null 2>&1 && log "hatchet api stopped" || log "hatchet api stop FAILED"
+      sleep "${API_STOP_FOR:?set API_STOP_FOR}"
+      log "hatchet api start"
+      fly machine start "$(machine_id api)" -a "$APP" >/dev/null 2>&1 && log "hatchet api started" || log "hatchet api start FAILED"
+    fi
     if [ -n "${RESIZE_AT:-}" ]; then
       sleep "$RESIZE_AT"
       log "resize to ${RESIZE_TO:?set RESIZE_TO} begins"
@@ -361,7 +441,12 @@ for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log;
 done
 fly ssh console -a "$APP" --machine "$(machine_id driver)" -C "cat /out/DONE" 2>/dev/null | tr -d "\r" > "$OUT/DONE" && [ -s "$OUT/DONE" ] || missing="$missing DONE"
 [ -z "$missing" ] || fail "could not copy:$missing"
-if [ "$CONFIG" = C ]; then
+# Optional: written only when the driver had gateways to sample.
+for try in 1 2 3; do
+  fly ssh sftp get -a "$APP" --machine "$(machine_id driver)" /out/scrape.jsonl "$OUT/scrape.jsonl" >/dev/null 2>&1 && break
+  rm -f "${OUT:?}/scrape.jsonl"; sleep 5
+done
+if [ "$CONFIG" = C ] || [ "$CONFIG" = E ]; then
   fly ssh console -a "$APP" --machine "$(machine_id aquifer)" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
     | grep -E '^aquifer_(admission_rejected_total|dispatch_attempts_total)' | sed 's/target="[^"]*"/target="hatchet-api"/' > "$OUT/aquifer_metrics.txt" || true
 fi
@@ -388,7 +473,8 @@ fly machine list -a "$APP" --json \
   echo "started=$started"
   echo "hatchet=$HATCHET"
   echo "harness_image=$HARNESS_IMAGE"
-  [ "$CONFIG" = C ] && echo "api_image=$FORK_API_IMAGE"
+  case "$CONFIG" in C | E) echo "api_image=$FORK_API_IMAGE" ;; esac
+  echo "api_vm=${API_VM:-default}"
   echo "region=$REGION"
   echo "workers=$WORKERS"
   echo "rate=${RATE:-50}"
@@ -396,13 +482,17 @@ fly machine list -a "$APP" --json \
   echo "engine_db_conns=${ENGINE_DB_CONNS:-100} trigger_slots=${TRIGGER_SLOTS:-5} buffer_size=${BUFFER_SIZE:-10} buffer_flush=${BUFFER_FLUSH:-10ms}"
   [ -n "${PHASES:-}" ] && echo "phases=$PHASES"
   echo "drain_max=${DRAIN_MAX:-30m}"
-  [ "$CONFIG" = C ] && echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"
-  [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
+  case "$CONFIG" in C | E) echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"; echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}" ;; esac
   [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000} max_rps=${PACING_MAX_RPS:-${RATE:-50}}"
   echo "pg_size=$PG_SIZE"
   [ -n "${MAX_ATTEMPTS:-}" ] && echo "max_attempts=$MAX_ATTEMPTS"
   [ -n "${AQUIFER_MAX_RETRIES:-}" ] && echo "aquifer_max_retries=$AQUIFER_MAX_RETRIES"
   [ "$CONFIG" = D ] && echo "envoy_tenant_rps=${TENANT_RPS:-15} envoy_global_rps=${GLOBAL_RPS:-${RATE:-50}}"
+  [ "$CONFIG" = E ] && echo "envoy_tenant_rps=${EDGE_TENANT_RPS:-100} envoy_global_rps=${EDGE_GLOBAL_RPS:-400}"
+  [ -n "${ENVOY_KILL_AT:-}" ] && echo "envoy_kill_at=$ENVOY_KILL_AT"
+  [ -n "${ENVOY_DRAIN_AT:-}" ] && echo "envoy_drain_at=$ENVOY_DRAIN_AT envoy_drain_s=${ENVOY_DRAIN_S:-15}"
+  [ -n "${AQUIFER_KILL_AT:-}" ] && echo "aquifer_kill_at=$AQUIFER_KILL_AT"
+  [ -n "${API_STOP_AT:-}" ] && echo "api_stop_at=$API_STOP_AT api_stop_for=$API_STOP_FOR"
   [ -n "${RESIZE_AT:-}" ] && echo "resize_at=$RESIZE_AT resize_to=$RESIZE_TO"
   [ -n "${OUTAGE_AT:-}" ] && echo "outage_at=$OUTAGE_AT outage_for=$OUTAGE_FOR"
 } > "$OUT/run.txt"

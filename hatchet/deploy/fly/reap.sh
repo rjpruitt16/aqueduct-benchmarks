@@ -52,7 +52,7 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   echo "$NAME: run.sh ${alive:+alive}${alive:-gone}, ${age} min old, driver ${done_status:+finished ($done_status)}${done_status:-not finished}"
   mkdir -p "${OUT:?}"
   if [ -n "$done_status" ] && [ "${DRY_RUN:-}" != 1 ]; then
-    for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE; do
+    for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE scrape.jsonl; do
       for try in 1 2 3; do
         timeout 120 fly ssh sftp get -a "$APP" --machine "$drv" "/out/$f" "${OUT:?}/${f:?}" >/dev/null 2>&1 && break
         rm -f "${OUT:?}/${f:?}"; sleep 5
