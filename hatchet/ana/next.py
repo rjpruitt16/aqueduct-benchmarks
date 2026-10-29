@@ -53,6 +53,22 @@ for run in sys.argv[1:]:
     if met:
         to_hatchet = sum(float(l.rsplit(" ", 1)[1]) for l in met.splitlines() if l.startswith("aquifer_dispatch_attempts_total"))
         print(f"  Aquifer's requests to Hatchet per document {to_hatchet / max(offered, 1):.2f}")
+    # Workflow completion (offer to the last step finishing) for every tenant,
+    # and, from drivers that record them, time to first acceptance, retries
+    # and backoff, kept apart from completion.
+    for t in ["law-firm", "accounting"] + SMALL:
+        v = tenants.get(t)
+        if not v:
+            continue
+        line = (f"    {t:10} completion p50/p99 {v['p50_ms_by_phase'].get('overload', 0) / 1000:8.1f}/{v['p99_ms_by_phase'].get('overload', 0) / 1000:8.1f} s")
+        if "accept_p50_ms_by_phase" in v:
+            line += (f" | first acceptance p50/p99 {v['accept_p50_ms_by_phase'].get('overload', 0) / 1000:7.1f}/{v['accept_p99_ms_by_phase'].get('overload', 0) / 1000:7.1f} s"
+                     f" | run ID p50/p99 {v.get('to_run_id_p50_ms', 0) / 1000:7.1f}/{v.get('to_run_id_p99_ms', 0) / 1000:7.1f} s"
+                     f" | retries {v['retries']} on {v['retried_documents']} docs, backoff {v['backoff_seconds']:.0f} s total,"
+                     f" p99 {v['backoff_p99_ms_by_phase'].get('overload', 0) / 1000:.1f} s")
+        else:
+            line += f" | (no acceptance or backoff fields in this driver) attempts/doc {v['avg_attempts']:.2f}"
+        print(line)
     print(f"  law firm p50/p99 in overload {law['p50_ms_by_phase'].get('overload', 0) / 60000:.1f}/{law['p99_ms_by_phase'].get('overload', 0) / 60000:.1f} min  "
           f"accounting p99 {acc_p99:.1f} s  small tenants p99 {small_p99:.1f} s")
 
