@@ -33,6 +33,7 @@ export COMPOSE_FILE=${COMPOSE_FILE:-compose.yml}
 
 rm -rf "${W:?}"
 mkdir -p "$W/out" "$BIN"
+printf 'config=%s\nscenario=%s\nfail_at=%s\nlocal=1\n' "$CONFIG" "$FAILURE" "$FAIL_AT" > "$W/out/run.txt"
 TOKEN=$(cat "$LOCAL/token.txt")
 
 # Binaries: the harness from this checkout, Aquifer at the ref the Fly runs use.

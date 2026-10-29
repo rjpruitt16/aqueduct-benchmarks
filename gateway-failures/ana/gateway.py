@@ -103,7 +103,8 @@ for run in sys.argv[1:]:
     for t in tenants.values():
         for k, n in t["outcomes"].items():
             outcomes[k] = outcomes.get(k, 0) + n
-    print(f"  outcomes {outcomes}  duplicate completions (callbacks) {s.get('duplicate_completions', 0)}")
+    print(f"  outcomes {outcomes}  duplicate completions (callbacks) {s.get('duplicate_completions', 0)}  "
+          f"completed while their trigger was still being retried {s.get('settled_while_retrying', 'not measured')}")
     dups = read_json(os.path.join(run, "duplicates.json"))
     if dups is not None:
         print(f"  Hatchet runs per document: {dups.get('documents_with_more_than_one_run', '?')} documents ran more than once, "
