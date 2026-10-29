@@ -345,16 +345,18 @@ if [ "$CONFIG" = C ]; then
   fly ssh console -a "$APP" --machine "$(machine_id aquifer)" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
     | grep -E '^aquifer_(admission_rejected_total|dispatch_attempts_total)' | sed 's/target="[^"]*"/target="hatchet-api"/' > "$OUT/aquifer_metrics.txt" || true
 fi
-# CPU per machine over the run, from Fly's metrics (cores in use, 30 s steps),
-# for useful work per CPU-second. The token goes only in the request header.
+# CPU per machine over the run, from Fly's metrics, for useful work per
+# CPU-second: cores busy with work (user, system, interrupts; not idle,
+# iowait or steal), in 30 s steps. fly_instance_cpu counts hundredths of a
+# second. The token goes only in the request header.
 case "${FLY_API_TOKEN:-}" in FlyV1*) auth="$FLY_API_TOKEN" ;; *) auth="Bearer ${FLY_API_TOKEN:-}" ;; esac
-q="sum by (instance) (rate(fly_instance_cpu{app=\"$APP\",mode!=\"idle\"}[1m]))"
+q="sum by (instance) (rate(fly_instance_cpu{app=\"$APP\",mode=~\"user|nice|system|irq|softirq\"}[1m])) / 100"
 curl -s -G -H "Authorization: $auth" "https://api.fly.io/prometheus/$FLY_ORG/api/v1/query_range" \
   --data-urlencode "query=$q" --data-urlencode "start=$started_s" --data-urlencode "end=$(date +%s)" \
   --data-urlencode "step=30" > "$OUT/cpu.raw.json" 2>/dev/null || true
 fly machine list -a "$APP" --json | jq -r '[.[] | {(.id): .name}] | add' > "$OUT/cpu.names.json" 2>/dev/null || true
 jq -n --slurpfile raw "$OUT/cpu.raw.json" --slurpfile names "$OUT/cpu.names.json" \
-  '[$raw[0].data.result[]? | {machine: ($names[0][.metric.instance] // .metric.instance), values}]' \
+  '{unit: "cores", machines: [$raw[0].data.result[]? | {machine: ($names[0][.metric.instance] // .metric.instance), values}]}' \
   > "$OUT/cpu.json" 2>/dev/null || true
 rm -f "$OUT/cpu.raw.json" "$OUT/cpu.names.json"
 # Machine sizes and images only: the full config holds the token and the
