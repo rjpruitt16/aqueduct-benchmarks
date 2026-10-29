@@ -22,7 +22,7 @@ type Step struct {
 
 // CallRecord is one resource call, as the calling agent saw it.
 type CallRecord struct {
-	Resource  string `json:"resource"` // llm, db or sandbox
+	Resource  string `json:"resource"` // llm, db, sandbox or ci
 	Step      string `json:"step"`
 	Key       string `json:"key"`
 	Status    int    `json:"status"`
@@ -49,6 +49,8 @@ type Verify struct {
 	Passed      bool         `json:"passed"`
 	ExecutionID string       `json:"execution_id"`
 	Output      string       `json:"output"`
+	CIRunID     string       `json:"ci_run_id,omitempty"` // the CI run that passed, when CI is on
+	CIAttempts  int          `json:"ci_attempts,omitempty"`
 	Calls       []CallRecord `json:"calls"`
 }
 
@@ -60,6 +62,7 @@ type Result struct {
 	Verified    bool         `json:"verified"`
 	Fix         string       `json:"fix"`
 	ExecutionID string       `json:"execution_id"` // the sandbox run that verified it
+	CIRunID     string       `json:"ci_run_id,omitempty"`
 	Rounds      int          `json:"rounds"`
 	Error       string       `json:"error,omitempty"`
 	Calls       []CallRecord `json:"calls"`

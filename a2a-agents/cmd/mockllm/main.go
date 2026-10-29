@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rjpruitt16/aqueduct-benchmarks/a2a-agents/internal/advertise"
 	"github.com/rjpruitt16/aqueduct-benchmarks/a2a-agents/internal/corpus"
 )
 
@@ -185,7 +186,7 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	addr := envStr("LISTEN", ":8000")
 	log.Printf("mockllm on %s: %d sequences at %d tokens/s", addr, g.maxSeqs, int(g.tokensPerS))
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, advertise.Wrap(mux, g.maxSeqs)))
 }
 
 func envInt(name string, def int) int {

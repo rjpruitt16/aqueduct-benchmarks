@@ -3,14 +3,16 @@
 //
 // A workflow counts as completed only when the coordinator's artifact says
 // verified AND the sandbox's own record of that execution (GET
-// /executions/{id}) shows the issue's tests passed for this workflow. The
+// /executions/{id}) shows the issue's tests passed for this workflow, and,
+// when CI_URL is set, CI's own record (GET /records/{id}) shows the
+// workflow's run passed. The
 // A2A acknowledgment (the task's first event), the result and the
 // verification are timed separately.
 //
 // Load: PHASES (name:seconds:workflows-per-second,...) spread across TENANTS
 // (name:weight,...); or COUNT workflows submitted at once (smoke tests).
 //
-// Environment: COORDINATOR_URL, SANDBOX_URL, PHASES or COUNT, TENANTS
+// Environment: COORDINATOR_URL, SANDBOX_URL, CI_URL, PHASES or COUNT, TENANTS
 // (big:1), DRAIN (10m), OUT (out), METRICS (name=url,... scraped at the end).
 package main
 
@@ -55,6 +57,7 @@ type entry struct {
 func main() {
 	coord := os.Getenv("COORDINATOR_URL")
 	sandbox := os.Getenv("SANDBOX_URL")
+	ci := os.Getenv("CI_URL")
 	out := env("OUT", "out")
 	os.MkdirAll(out, 0o755)
 	tenants := parseTenants(env("TENANTS", "big:1"))
@@ -78,7 +81,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			run(ctx, coord, sandbox, e)
+			run(ctx, coord, sandbox, ci, e)
 		}()
 	}
 
@@ -127,7 +130,7 @@ func main() {
 }
 
 // run submits one workflow over A2A streaming and records what came back.
-func run(ctx context.Context, coord, sandbox string, e *entry) {
+func run(ctx context.Context, coord, sandbox, ci string, e *entry) {
 	e.Outcome = "unfinished"
 	c, err := agentrpc.Client(ctx, coord)
 	if err != nil {
@@ -181,7 +184,7 @@ func run(ctx context.Context, coord, sandbox string, e *entry) {
 		return
 	}
 	// Check the claim against the sandbox's own record of the execution.
-	if verifiedBySandbox(ctx, sandbox, res.ExecutionID, e.Workflow) {
+	if verifiedBySandbox(ctx, sandbox, res.ExecutionID, e.Workflow) && (ci == "" || passedCI(ctx, ci, res.CIRunID, e.Workflow)) {
 		e.Outcome = "completed"
 	} else {
 		e.Outcome = "unverified"
@@ -203,6 +206,23 @@ func verifiedBySandbox(ctx context.Context, sandbox, executionID, workflow strin
 		Passed   bool   `json:"passed"`
 	}
 	return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&ex) == nil && ex.Passed && ex.Workflow == workflow
+}
+
+func passedCI(ctx context.Context, ci, runID, workflow string) bool {
+	if runID == "" {
+		return false
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ci+"/records/"+runID, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var ru struct {
+		Workflow string `json:"workflow"`
+		Status   string `json:"status"`
+	}
+	return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&ru) == nil && ru.Status == "passed" && ru.Workflow == workflow
 }
 
 type tenantSummary struct {

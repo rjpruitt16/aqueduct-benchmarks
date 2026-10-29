@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rjpruitt16/aqueduct-benchmarks/a2a-agents/internal/advertise"
 	"github.com/rjpruitt16/aqueduct-benchmarks/a2a-agents/internal/corpus"
 )
 
@@ -72,7 +73,7 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	addr := envStr("LISTEN", ":8100")
 	log.Printf("dbtool on %s: pool %d, wait %s", addr, cfg.MaxConns, wait)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, advertise.Wrap(mux, int(cfg.MaxConns))))
 }
 
 func seed(ctx context.Context, pool *pgxpool.Pool) error {

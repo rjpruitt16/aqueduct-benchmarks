@@ -42,6 +42,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rjpruitt16/aqueduct-benchmarks/a2a-agents/internal/advertise"
 	"github.com/rjpruitt16/aqueduct-benchmarks/a2a-agents/internal/corpus"
 )
 
@@ -93,7 +94,7 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	addr := envStr("LISTEN", ":8200")
 	log.Printf("sandbox on %s: %d slots, runner %s, limits %s", addr, cap(s.slots), s.runner, s.limits)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, advertise.Wrap(mux, cap(s.slots))))
 }
 
 func (s *server) run(w http.ResponseWriter, r *http.Request) {

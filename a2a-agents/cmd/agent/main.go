@@ -6,7 +6,10 @@
 //	ROLE=research     asks the LLM for a diagnosis
 //	ROLE=coding       reads the issue from the database tool service, asks the LLM
 //	                  for a fixed function, and records the attempt (a side effect)
-//	ROLE=verify       runs the issue's tests against the fix in the sandbox
+//	ROLE=verify       runs the issue's tests against the fix in the sandbox, then,
+//	                  when CI_URL is set, starts a CI run and polls it until it
+//	                  finishes; a failed (flaky) run is started again under a new
+//	                  key, up to CI_ATTEMPTS times
 //
 // Agents talk to each other over A2A (JSON-RPC). The specialists reach the
 // constrained resources through resource.Client in RESOURCE_MODE: direct,
@@ -15,7 +18,7 @@
 // Environment: ROLE, LISTEN (:9000), PUBLIC_URL; coordinator: RESEARCH_URL,
 // CODING_URL, VERIFY_URL, MAX_ROUNDS (3); specialists: LLM_URL, LLM_MODEL,
 // DB_URL, SANDBOX_URL, RESOURCE_MODE (direct), AQUIFER_URL, REDIS_URL,
-// CALL_TIMEOUT (10m).
+// CALL_TIMEOUT (10m), CI_URL, CI_POLL (10s), CI_ATTEMPTS (3).
 package main
 
 import (
@@ -26,6 +29,7 @@ import (
 	"iter"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -129,7 +133,7 @@ func runWorkflow(ctx context.Context, t work.Task, researchURL, codingURL, verif
 			return res
 		}
 		res.Calls = append(res.Calls, v.Calls...)
-		res.Fix, res.ExecutionID = c.Fix, v.ExecutionID
+		res.Fix, res.ExecutionID, res.CIRunID = c.Fix, v.ExecutionID, v.CIRunID
 		if v.Passed {
 			res.Verified = true
 			return res
@@ -144,6 +148,9 @@ func runWorkflow(ctx context.Context, t work.Task, researchURL, codingURL, verif
 type specialist struct {
 	rc                           *resource.Client
 	llmURL, model, dbURL, sbxURL string
+	ciURL                        string
+	ciPoll                       time.Duration
+	ciAttempts                   int
 	timeout                      time.Duration
 }
 
@@ -162,8 +169,13 @@ func newSpecialist() *specialist {
 		}
 		rc.Queue = q
 	}
+	ciPoll, err := time.ParseDuration(env("CI_POLL", "10s"))
+	if err != nil {
+		log.Fatalf("CI_POLL: %v", err)
+	}
 	return &specialist{rc: rc, llmURL: os.Getenv("LLM_URL"), model: env("LLM_MODEL", "stand-in"),
-		dbURL: os.Getenv("DB_URL"), sbxURL: os.Getenv("SANDBOX_URL"), timeout: timeout}
+		dbURL: os.Getenv("DB_URL"), sbxURL: os.Getenv("SANDBOX_URL"), ciURL: os.Getenv("CI_URL"),
+		ciPoll: ciPoll, ciAttempts: envInt("CI_ATTEMPTS", 3), timeout: timeout}
 }
 
 // call makes one resource call and records it.
@@ -295,7 +307,64 @@ func (s *specialist) verify(ctx context.Context, raw json.RawMessage) (any, erro
 	if err := json.Unmarshal(r.Body, &ex); err != nil {
 		return nil, fmt.Errorf("sandbox answer unreadable: %w", err)
 	}
-	return work.Verify{Passed: ex.Passed, ExecutionID: ex.ExecutionID, Output: ex.Output, Calls: []work.CallRecord{rec}}, nil
+	v := work.Verify{Passed: ex.Passed, ExecutionID: ex.ExecutionID, Output: ex.Output, Calls: []work.CallRecord{rec}}
+	if !ex.Passed || s.ciURL == "" {
+		return v, nil
+	}
+	// The tests pass in the sandbox: now CI, which a fix must pass to count.
+	for attempt := 1; attempt <= s.ciAttempts; attempt++ {
+		v.CIAttempts = attempt
+		status, runID, calls, err := s.ci(ctx, st, attempt)
+		v.Calls = append(v.Calls, calls...)
+		if err != nil {
+			return nil, err
+		}
+		if status == "passed" {
+			v.CIRunID = runID
+			return v, nil
+		}
+	}
+	return nil, fmt.Errorf("ci failed %d times", s.ciAttempts)
+}
+
+// ci starts one CI run and polls it until it finishes, every CI_POLL. Each
+// start and each poll is a resource call with its own key.
+func (s *specialist) ci(ctx context.Context, st work.Step, attempt int) (string, string, []work.CallRecord, error) {
+	var calls []work.CallRecord
+	key := fmt.Sprintf("%s-ci-%d-%d", st.Workflow, st.Round, attempt)
+	body, _ := json.Marshal(map[string]any{"key": key, "workflow": st.Workflow, "tenant": st.Tenant, "attempt": attempt})
+	r, rec, err := s.call(ctx, resource.Call{Resource: "ci", Method: http.MethodPost, URL: s.ciURL + "/runs", Body: body,
+		Key: key, Tenant: st.Tenant}, "ci-start")
+	calls = append(calls, rec)
+	if err != nil {
+		return "", "", calls, err
+	}
+	var run struct {
+		ID     string `json:"run_id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(r.Body, &run); err != nil || run.ID == "" {
+		return "", "", calls, fmt.Errorf("ci answer unreadable: %.200s", r.Body)
+	}
+	for n := 1; run.Status != "passed" && run.Status != "failed"; n++ {
+		t := time.NewTimer(s.ciPoll)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return "", "", calls, ctx.Err()
+		case <-t.C:
+		}
+		r, rec, err := s.call(ctx, resource.Call{Resource: "ci", Method: http.MethodGet,
+			URL: s.ciURL + "/runs/" + run.ID + "?tenant=" + url.QueryEscape(st.Tenant), Key: fmt.Sprintf("%s-poll-%d", key, n), Tenant: st.Tenant}, "ci-poll")
+		calls = append(calls, rec)
+		if err != nil {
+			return "", "", calls, err
+		}
+		if err := json.Unmarshal(r.Body, &run); err != nil {
+			return "", "", calls, fmt.Errorf("ci answer unreadable: %.200s", r.Body)
+		}
+	}
+	return run.Status, run.ID, calls, nil
 }
 
 func env(name, def string) string {

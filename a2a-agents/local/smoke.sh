@@ -16,7 +16,8 @@ case "$CONFIG" in A) MODE=direct ;; B) MODE=queue ;; C) MODE=aquifer ;; *) echo 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$ROOT/.smoke/$CONFIG
 BIN=$ROOT/.smoke/bin
-AQUIFER_REF=${AQUIFER_REF:-main}
+# C runs #130 (shared destination limits), unmerged at the time of writing.
+AQUIFER_REF=${AQUIFER_REF:-shared-backend-limits}
 rm -rf "${W:?}"
 mkdir -p "$W/out" "$BIN"
 printf 'config=%s\nmode=%s\nlocal=1\n' "$CONFIG" "$MODE" > "$W/out/run.txt"
@@ -49,35 +50,38 @@ if [ "$CONFIG" = B ]; then
 fi
 
 start mockllm "$BIN/mockllm" LISTEN=:18000 MAX_SEQS=2 TOKENS_PER_S=200
+# CI: short runs and a high flake rate so reruns happen in a smoke test; a
+# tight API budget so polling meets the rate limit.
+start mockci "$BIN/mockci" LISTEN=:18500 RUNNERS=2 DURATION=5s-15s FLAKY_PCT=${CI_FLAKY_PCT:-25} RATE_PER_MIN=30 BURST=5
 start dbtool "$BIN/dbtool" LISTEN=:18100 DATABASE_URL="postgres://postgres:a2a@127.0.0.1:15432/a2a?sslmode=disable" DB_POOL=4 DB_WAIT=500ms
 start sandbox "$BIN/sandbox" LISTEN=:18200 SLOTS=2 RUNNER=docker LIMITS=${SANDBOX_LIMITS:-rlimit} USER=${SANDBOX_USER:-root} EXEC_TIMEOUT=${SANDBOX_TIMEOUT:-60s} LOG="$W/out/executions.jsonl"
-LLM=http://127.0.0.1:18000 DB=http://127.0.0.1:18100 SBX=http://127.0.0.1:18200
-metrics="mockllm=$LLM/metrics,dbtool=$DB/metrics,sandbox=$SBX/metrics"
+LLM=http://127.0.0.1:18000 DB=http://127.0.0.1:18100 SBX=http://127.0.0.1:18200 CI=http://127.0.0.1:18500
+metrics="mockllm=$LLM/metrics,dbtool=$DB/metrics,sandbox=$SBX/metrics,mockci=$CI/metrics"
 extra=""
 case "$CONFIG" in
   B)
-    start dispatcher "$BIN/dispatcher" LISTEN=:18300 REDIS_URL=redis://127.0.0.1:16379 RESOURCES=llm=2,db=4,sandbox=2
+    start dispatcher "$BIN/dispatcher" LISTEN=:18300 REDIS_URL=redis://127.0.0.1:16379 RESOURCES=llm=2,db=4,sandbox=2,ci=4
     extra="REDIS_URL=redis://127.0.0.1:16379"
     metrics="$metrics,dispatcher=http://127.0.0.1:18300/metrics" ;;
   C)
     # One upstream per resource, with the same limits B's dispatcher has.
-    printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "127.0.0.1:18000":\n    rps: 100\n    max_concurrent: 2\n  "127.0.0.1:18100":\n    rps: 200\n    max_concurrent: 4\n  "127.0.0.1:18200":\n    rps: 100\n    max_concurrent: 2\n' > "$W/aquifer.yaml"
+    printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n  "127.0.0.1:18000":\n    rps: 100\n    max_concurrent: 2\n  "127.0.0.1:18100":\n    rps: 200\n    max_concurrent: 4\n  "127.0.0.1:18200":\n    rps: 100\n    max_concurrent: 2\n  "127.0.0.1:18500":\n    rps: 100\n    max_concurrent: 4\n' > "$W/aquifer.yaml"
     # A test run takes longer than /proxy's default 3 s direct attempt; a
     # shorter limit cuts runs off and Aquifer then runs them again.
     start aquifer "$BIN/aquifer" AQUIFER_ADAPTER=http PORT=18400 DB_PATH="$W/aqdata" CONFIG_PATH="$W/aquifer.yaml" \
-      AQUIFER_PROXY_DIRECT_ATTEMPT_TIMEOUT_SECONDS=${AQUIFER_DIRECT_TIMEOUT:-60}
+      AQUIFER_PROXY_DIRECT_ATTEMPT_TIMEOUT_SECONDS=${AQUIFER_DIRECT_TIMEOUT:-60} AQUIFER_SHARED_DESTINATION_LIMITS=true
     extra="AQUIFER_URL=http://127.0.0.1:18400"
     metrics="$metrics,aquifer=http://127.0.0.1:18400/metrics" ;;
 esac
 for a in research:19001 coding:19002 verify:19003; do
   start "${a%%:*}" "$BIN/agent" ROLE="${a%%:*}" LISTEN=":${a#*:}" PUBLIC_URL="http://127.0.0.1:${a#*:}" \
-    RESOURCE_MODE=$MODE LLM_URL=$LLM DB_URL=$DB SANDBOX_URL=$SBX $extra
+    RESOURCE_MODE=$MODE LLM_URL=$LLM DB_URL=$DB SANDBOX_URL=$SBX CI_URL=$CI CI_POLL=2s $extra
 done
 start coordinator "$BIN/agent" ROLE=coordinator LISTEN=:19000 PUBLIC_URL=http://127.0.0.1:19000 \
   RESEARCH_URL=http://127.0.0.1:19001 CODING_URL=http://127.0.0.1:19002 VERIFY_URL=http://127.0.0.1:19003
 
 # Wait for every service to answer.
-for u in $LLM/health $DB/health $SBX/health; do
+for u in $LLM/health $DB/health $SBX/health $CI/health; do
   i=0; until curl -sf "$u" >/dev/null; do i=$((i + 1)); [ "$i" -gt 60 ] && { echo "$u didn't come up" >&2; exit 1; }; sleep 1; done
 done
 [ "$CONFIG" = C ] && { i=0; until curl -sf http://127.0.0.1:18400/health >/dev/null; do i=$((i + 1)); [ "$i" -gt 60 ] && exit 1; sleep 1; done; }
@@ -86,5 +90,5 @@ for p in 19000 19001 19002 19003; do
 done
 
 TENANTS=big:3,small-1:1,small-2:1 COUNT=${COUNT:-8} DRAIN=${DRAIN:-5m} OUT="$W/out" COORDINATOR_URL=http://127.0.0.1:19000 \
-  SANDBOX_URL=$SBX METRICS="$metrics" "$BIN/driver" > "$W/out/driver.log" 2>&1
+  SANDBOX_URL=$SBX CI_URL=$CI METRICS="$metrics" "$BIN/driver" > "$W/out/driver.log" 2>&1
 echo "done: $W/out"
