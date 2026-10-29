@@ -35,7 +35,8 @@ cleanup() {
   docker rm -f a2a-pg a2a-redis >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
-start() { name=$1; shift; env "$@" > "$W/$name.log" 2>&1 & pids="$pids $!"; }
+# start <name> <program> [VAR=value...]: run program with those settings.
+start() { name=$1 prog=$2; shift 2; env "$@" "$prog" > "$W/$name.log" 2>&1 & pids="$pids $!"; }
 
 docker rm -f a2a-pg a2a-redis >/dev/null 2>&1 || true
 docker run -d --name a2a-pg -p 127.0.0.1:15432:5432 -e POSTGRES_PASSWORD=a2a -e POSTGRES_DB=a2a postgres:16.4 >/dev/null
