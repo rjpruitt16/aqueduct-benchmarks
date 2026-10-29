@@ -46,6 +46,13 @@ What Envoy's documentation says about in-flight work, confirmed:
 
 ## What this means for Aquifer
 
+**Aquifer manages retries. It isn't the source of truth for whether an action happened.**
+
+- **What its job record says:** that Aquifer accepted a request and what it last heard from the backend, not whether the backend's action took effect.
+- **Why it can't know:** a dispatch whose response is lost, a crash between the backend acting and Aquifer recording it, or a partition all leave Aquifer unable to tell whether the action ran. It retries, which is its job, so the backend can see the same request more than once.
+- **What services still need:** their own database as the record of what they did, and idempotency on the key Aquifer forwards, so a repeat is recognized there.
+- **The division of labor:** Aquifer decides when and how often to try. The service decides whether something already happened.
+
 The four categories, applied without favoring Aquifer:
 
 1. **Aquifer could keep useful work.** This needs a failure *downstream* of Aquifer while Aquifer stays up: the backend or its database unavailable, a partition between Aquifer and the backend, or a backend restart or resize, with callers that accept asynchronous completion. Aquifer holds jobs it has acknowledged and dispatches them when the backend returns. None of the twelve external incidents is in this category. The closest evidence is our own Hatchet runs. Even there, Hatchet is itself durable once it accepts a job, so Aquifer adds value only for work Hatchet *hadn't yet accepted*. That's what the outage runs in progress measure.
