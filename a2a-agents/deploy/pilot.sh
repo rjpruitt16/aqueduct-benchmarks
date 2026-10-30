@@ -79,11 +79,12 @@ if [ "$KIND" = pilot ]; then
   DEADLINE=$(( $(date +%s) + HOURS * 3600 ))
   VLLM_KEY=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
   types=$(echo "${GPU_TYPES:-NVIDIA A40,NVIDIA RTX A6000,NVIDIA L40S}" | jq -R 'split(",")')
+  dcs=$(echo "${DATA_CENTERS:-US-IL-1,US-TX-1,US-TX-3,US-TX-4,US-KS-2,US-KS-3,US-GA-1,US-GA-2,US-WA-1,US-CA-2,US-NC-1,US-DE-1,US-MD-1,US-MO-1,US-MO-2,CA-MTL-1,CA-MTL-2,CA-MTL-3}" | jq -R 'split(",")')
   body=$(jq -n --arg name "a2a-pilot-$NAME" --arg image "${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0-cu129}" \
-    --arg model "$MODEL" --arg max "$LLM_MAX" --arg key "$VLLM_KEY" --argjson types "$types" '{
+    --arg model "$MODEL" --arg max "$LLM_MAX" --arg key "$VLLM_KEY" --argjson types "$types" --argjson dcs "$dcs" '{
       name: $name, imageName: $image, gpuTypeIds: $types, gpuTypePriority: "custom", gpuCount: 1,
       cloudType: "SECURE", interruptible: false, containerDiskInGb: 60, volumeInGb: 0, ports: ["8000/http"],
-      dataCenterIds: ["US-IL-1","US-TX-1","US-TX-3","US-TX-4","US-KS-2","US-KS-3","US-GA-1","US-GA-2","US-WA-1","US-CA-2","US-NC-1","US-DE-1","US-MD-1","US-MO-1","US-MO-2","CA-MTL-1","CA-MTL-2","CA-MTL-3"],
+      dataCenterIds: $dcs,
       allowedCudaVersions: ["13.0","12.9"],
       dockerStartCmd: [$model,"--max-num-seqs",$max,"--max-model-len","4096","--port","8000","--api-key",$key]}')
   # The image's entrypoint is `vllm serve` (v0.31.0); the flags above are
@@ -97,7 +98,7 @@ if [ "$KIND" = pilot ]; then
   DC=$(echo "$info" | jq -r '.machine.dataCenterId // .machine.location // empty')
   log "pod $POD: $(echo "$info" | jq -r '.gpu.displayName // .machine.gpuDisplayName // "gpu"') in ${DC:-unknown}, \$$(echo "$info" | jq -r '.costPerHr')/h"
   case "$DC" in
-    US-TX*) REGION=dfw ;; US-CA* | US-WA*) REGION=sjc ;; US-NC* | US-DE* | US-MD* | US-GA*) REGION=iad ;; CA-MTL*) REGION=yyz ;; *) REGION=ord ;;
+    US-TX*) REGION=dfw ;; US-CA* | US-WA*) REGION=sjc ;; US-NC* | US-DE* | US-MD* | US-GA*) REGION=iad ;; CA-MTL*) REGION=yyz ;; EU-SE*) REGION=arn ;; *) REGION=ord ;;
   esac
   LLM_TARGET=https://$POD-8000.proxy.runpod.net
   # The model downloads and loads: give it 25 minutes.

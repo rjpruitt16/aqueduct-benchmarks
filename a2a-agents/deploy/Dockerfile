@@ -19,7 +19,7 @@ RUN git clone -q https://github.com/rjpruitt16/aquifer /aquifer \
 
 FROM debian:bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl python3 postgresql redis-server bubblewrap util-linux procps \
+ && apt-get install -y --no-install-recommends ca-certificates curl python3 postgresql redis-server bubblewrap util-linux procps jq \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ /usr/local/bin/
 RUN mv /usr/local/bin/aquifer-ref /usr/local/share/aquifer-ref
@@ -27,4 +27,8 @@ ARG IMAGE_REF=unknown
 RUN echo "$IMAGE_REF" > /usr/local/share/image-ref
 COPY deploy/stack.sh deploy/series.sh /usr/local/bin/
 COPY ana/calibrate.py /usr/local/share/a2a/calibrate.py
+# The controller (deploy/ctl.sh) runs the pilot from Fly: flyctl and the
+# scripts, under /opt/a2a so pilot.sh writes results to /opt/a2a/results.
+RUN curl -fsSL https://fly.io/install.sh | sh -s 0.4.122
+COPY deploy/ctl.sh deploy/pilot.sh deploy/reap.sh /opt/a2a/deploy/
 CMD ["sleep", "infinity"]
