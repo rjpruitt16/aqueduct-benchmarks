@@ -126,7 +126,7 @@ if [ "$KIND" = pilot ]; then secret=$(cat ~/.runpod-key); else secret=rehearsal-
 echo "RUNPOD_API_KEY=$secret" | fly secrets import -a "$APP" --stage >/dev/null 2>&1 || { log "secret not set"; teardown; exit 1; }
 # The machine runs the series, then stays up two hours for the copy, then stops.
 envflags=""
-for kv in $SERIES_ENV DEADLINE=$DEADLINE LLM_MAX=$LLM_MAX DB_POOL=8 SLOTS=4 CI_RUNNERS=24 CI_DURATION=20s-60s CI_POLL=10s; do
+for kv in $SERIES_ENV DEADLINE=$DEADLINE LLM_MAX=$LLM_MAX DB_POOL=8 SLOTS=4 CI_DURATION=20s-60s CI_POLL=10s; do
   envflags="$envflags --env $kv"
 done
 # shellcheck disable=SC2086

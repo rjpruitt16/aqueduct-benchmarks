@@ -76,11 +76,13 @@ rate() { python3 -c "import sys;print(f'{float(sys.argv[1])*float(sys.argv[2]):.
 
 log "series starting; deadline $(date -u -d "@$DEADLINE" +%FT%TZ)"
 if [ -z "${CAPACITY:-}" ]; then
-  run cal B "${CAL_PHASES:-r1:120:0.05,r2:120:0.1,r3:120:0.2,r4:120:0.4,r5:120:0.8}"
+  # CI without limits during calibration, so only the model can saturate.
+  (export CI_RUNNERS=1000 CI_RATE_PER_MIN=1000000 CI_BURST=1000000
+   run cal B "${CAL_PHASES:-r1:120:0.05,r2:120:0.1,r3:120:0.2,r4:120:0.4,r5:120:0.8}")
   if [ ! -f "$RESULTS/cal/ledger.jsonl" ]; then finish "calibration failed"; exit 1; fi
-  eval "$(python3 -I /usr/local/share/a2a/calibrate.py "$RESULTS/cal/ledger.jsonl")"
-  log "calibration: CAPACITY=$CAPACITY workflows/s FIX_RATE=$FIX_RATE per issue: $PER_ISSUE"
-  echo "CAPACITY=$CAPACITY FIX_RATE=$FIX_RATE PER_ISSUE=$PER_ISSUE" > "$RESULTS/calibration.txt"
+  eval "$(python3 -I /usr/local/share/a2a/calibrate.py "$RESULTS/cal")"
+  log "calibration: CAPACITY=$CAPACITY workflows/s (model busy by phase: $BUSY) FIX_RATE=$FIX_RATE per issue: $PER_ISSUE"
+  echo "CAPACITY=$CAPACITY BUSY=$BUSY FIX_RATE=$FIX_RATE PER_ISSUE=$PER_ISSUE" > "$RESULTS/calibration.txt"
   if python3 -c "import sys;sys.exit(0 if float(sys.argv[1]) < float(sys.argv[2]) else 1)" "$FIX_RATE" "$MIN_FIX_RATE"; then
     finish "fix rate $FIX_RATE below $MIN_FIX_RATE: stopping before the comparison"
     exit 1
@@ -90,6 +92,19 @@ if [ -z "${CAPACITY:-}" ]; then
     exit 1
   fi
 fi
+
+# CI sized from X, so the model stays the main limit: runners for 1.2X at a
+# 40 s mean run; a per-tenant API budget that fits the big tenant's normal
+# load (60% of 0.7X, about 6.4 CI calls a workflow) with a quarter to spare,
+# so bursts and floods exceed it; a burst allowance of 10 s of that budget.
+eval "$(python3 -c "
+import math,sys
+x=float(sys.argv[1])
+rpm=math.ceil(1.25*0.6*0.7*x*6.4*60)
+print(f'export CI_RUNNERS={max(4,math.ceil(1.2*x*40))} CI_RATE_PER_MIN={max(10,rpm)} CI_BURST={max(2,math.ceil(rpm/6))}')
+" "$CAPACITY")"
+log "CI for the comparison: $CI_RUNNERS runners, $CI_RATE_PER_MIN calls/min per tenant, burst $CI_BURST"
+echo "CI_RUNNERS=$CI_RUNNERS CI_RATE_PER_MIN=$CI_RATE_PER_MIN CI_BURST=$CI_BURST" >> "$RESULTS/calibration.txt"
 
 q=$((LOAD_S / 4)) e=$((LOAD_S / 8))
 phases_for() {
