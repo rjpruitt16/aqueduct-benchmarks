@@ -85,10 +85,12 @@ if [ "$KIND" = pilot ]; then
       name: $name, imageName: $image, gpuTypeIds: $types, gpuTypePriority: "custom", gpuCount: 1,
       cloudType: "SECURE", interruptible: false, containerDiskInGb: 60, volumeInGb: 0, ports: ["8000/http"],
       dataCenterIds: $dcs,
-      allowedCudaVersions: ["13.0","12.9"],
       dockerStartCmd: [$model,"--max-num-seqs",$max,"--max-model-len","4096","--port","8000","--api-key",$key]}')
   # The image's entrypoint is `vllm serve` (v0.31.0); the flags above are
-  # checked against that release's source.
+  # checked against that release's source. No allowedCudaVersions: the filter
+  # matches exact versions, REST v1 accepts none past 13.0, and on 2026-10-30
+  # the free hosts ran 13.2 (driver 595), so any filter excluded them all. A
+  # host older than 12.9 would fail the vLLM wait below and lose its pod.
   log "creating the GPU pod"
   resp=$(rp -X POST https://rest.runpod.io/v1/pods -d "$body")
   POD=$(echo "$resp" | jq -r '.id // empty')
