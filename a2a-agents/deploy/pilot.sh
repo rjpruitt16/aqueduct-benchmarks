@@ -20,7 +20,7 @@
 #
 # Environment: IMAGE (required), FLY_ORG (ezthrottle), HOURS (pilot deadline,
 # 5), GPU_TYPES (NVIDIA A40,NVIDIA RTX A6000,NVIDIA L40S), VLLM_IMAGE
-# (vllm/vllm-openai:v0.31.0-cu129), MODEL (Qwen/Qwen2.5-7B-Instruct), LLM_MAX (8),
+# (vllm/vllm-openai:v0.31.0), MODEL (Qwen/Qwen2.5-7B-Instruct), LLM_MAX (8),
 # KEEP=1 (leave the Fly app for debugging; never the pod).
 # Reads ~/.runpod-key (pilot) and ~/.fly-token.
 set -u
@@ -80,7 +80,7 @@ if [ "$KIND" = pilot ]; then
   VLLM_KEY=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
   types=$(echo "${GPU_TYPES:-NVIDIA A40,NVIDIA RTX A6000,NVIDIA L40S}" | jq -R 'split(",")')
   dcs=$(echo "${DATA_CENTERS:-US-IL-1,US-TX-1,US-TX-3,US-TX-4,US-KS-2,US-KS-3,US-GA-1,US-GA-2,US-WA-1,US-CA-2,US-NC-1,US-DE-1,US-MD-1,US-MO-1,US-MO-2,CA-MTL-1,CA-MTL-2,CA-MTL-3}" | jq -R 'split(",")')
-  body=$(jq -n --arg name "a2a-pilot-$NAME" --arg image "${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0-cu129}" \
+  body=$(jq -n --arg name "a2a-pilot-$NAME" --arg image "${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}" \
     --arg model "$MODEL" --arg max "$LLM_MAX" --arg key "$VLLM_KEY" --argjson types "$types" --argjson dcs "$dcs" '{
       name: $name, imageName: $image, gpuTypeIds: $types, gpuTypePriority: "custom", gpuCount: 1,
       cloudType: "SECURE", interruptible: false, containerDiskInGb: 60, volumeInGb: 0, ports: ["8000/http"],
@@ -103,11 +103,13 @@ if [ "$KIND" = pilot ]; then
     US-TX*) REGION=dfw ;; US-CA* | US-WA*) REGION=sjc ;; US-NC* | US-DE* | US-MD* | US-GA*) REGION=iad ;; CA-MTL*) REGION=yyz ;; EU-SE*) REGION=arn ;; *) REGION=ord ;;
   esac
   LLM_TARGET=https://$POD-8000.proxy.runpod.net
-  # The model downloads and loads: give it 25 minutes.
+  # The image (about 38 GB) and the model download, then the model loads:
+  # give it 40 minutes. The -cu129 image cannot start: its torchcodec needs
+  # libnvrtc.so.13, which only the CUDA 13 image (the plain tag) has.
   i=0
   until [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VLLM_KEY" "$LLM_TARGET/v1/models")" = 200 ]; do
     i=$((i + 1))
-    if [ "$i" -gt 50 ]; then log "vLLM never came up"; teardown; exit 1; fi
+    if [ "$i" -gt 80 ]; then log "vLLM never came up"; teardown; exit 1; fi
     sleep 30
   done
   log "vLLM ready at $LLM_TARGET after $((i / 2)) minutes"
