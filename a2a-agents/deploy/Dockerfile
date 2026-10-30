@@ -1,6 +1,6 @@
 # The pilot machine's image: every program in cmd/, Aquifer built from
-# AQUIFER_REF, Postgres, Redis, Python for the tests and nsjail to isolate
-# them. deploy/stack.sh runs one measured run inside it.
+# AQUIFER_REF, Postgres, Redis, Python for the tests and bubblewrap to
+# isolate them. deploy/stack.sh runs one measured run inside it.
 #
 # Build from a2a-agents/: docker build -f deploy/Dockerfile --build-arg AQUIFER_REF=<commit> .
 FROM golang:1.26-bookworm AS build
@@ -19,7 +19,7 @@ RUN git clone -q https://github.com/rjpruitt16/aquifer /aquifer \
 
 FROM debian:bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl python3 postgresql redis-server nsjail procps \
+ && apt-get install -y --no-install-recommends ca-certificates curl python3 postgresql redis-server bubblewrap util-linux procps \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ /usr/local/bin/
 RUN mv /usr/local/bin/aquifer-ref /usr/local/share/aquifer-ref

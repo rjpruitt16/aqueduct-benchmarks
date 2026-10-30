@@ -3,7 +3,7 @@
 # A, B or C, one scenario, from a clean state, results to $OUT.
 #
 # Everything but the model runs here: the agents, the database tool with its
-# own Postgres, the sandbox (nsjail), mock CI, Redis and the dispatcher (B),
+# own Postgres, the sandbox (bubblewrap), mock CI, Redis and the dispatcher (B),
 # Aquifer (C), and the driver. The model is vLLM elsewhere (LLM_TARGET), reached
 # through cmd/advertise on this machine in every configuration, or the
 # stand-in model when LLM_TARGET is empty (rehearsals).
@@ -78,7 +78,7 @@ else
   start mockllm mockllm LISTEN=:18000 MAX_SEQS="$LLM_MAX" TOKENS_PER_S="${STANDIN_TOKENS_PER_S:-40}"
 fi
 start dbtool dbtool LISTEN=:18100 DATABASE_URL="postgres://postgres@127.0.0.1:15432/a2a?sslmode=disable" DB_POOL="$DB_POOL" DB_WAIT=500ms
-start sandbox sandbox LISTEN=:18200 SLOTS="$SLOTS" RUNNER=nsjail EXEC_TIMEOUT=60s LOG="$OUT/executions.jsonl"
+start sandbox sandbox LISTEN=:18200 SLOTS="$SLOTS" RUNNER=bwrap EXEC_TIMEOUT=60s LOG="$OUT/executions.jsonl"
 start mockci mockci LISTEN=:18500 RUNNERS="$CI_RUNNERS" DURATION="${CI_DURATION:-30s-90s}" FLAKY_PCT="${CI_FLAKY_PCT:-5}" \
   RATE_PER_MIN="${CI_RATE_PER_MIN:-60}" BURST="${CI_BURST:-10}"
 LLM=http://127.0.0.1:18000 DB=http://127.0.0.1:18100 SBX=http://127.0.0.1:18200 CI=http://127.0.0.1:18500

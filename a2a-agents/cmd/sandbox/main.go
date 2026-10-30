@@ -10,7 +10,9 @@
 //
 // Every execution is a fresh, isolated process: RUNNER=docker (local) runs a
 // container with no network, a read-only root, a private /tmp and limits on
-// memory, CPU and processes; RUNNER=nsjail (Fly) does the same with nsjail.
+// memory, CPU and processes; RUNNER=bwrap (the pilot machine) does the same
+// with bubblewrap (new user, network, PID and IPC namespaces, uid 65534, no
+// capabilities) and prlimit; RUNNER=nsjail with nsjail.
 // The code is model-written and never trusted. Executions are not
 // deduplicated: the sandbox runs what it's asked to, and logs each run with
 // its key, so repeats are counted where they happen.
@@ -174,6 +176,13 @@ func (s *server) execute(ctx context.Context, id, module, tests string) (bool, s
 		args = append(args, "-v", dir+":/work:ro", "-w", "/work", s.image, "python", "-B", "test_issue.py")
 		cmd = exec.CommandContext(ctx, "docker", args...)
 		defer exec.Command("docker", "rm", "-f", name).Run()
+	case "bwrap":
+		secs := strconv.Itoa(int(s.timeout.Seconds()))
+		cmd = exec.CommandContext(ctx, "prlimit", "--as=268435456", "--cpu="+secs, "--nproc=64", "--fsize=1048576", "--nofile=64",
+			"bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--uid", "65534", "--gid", "65534",
+			"--ro-bind", "/usr", "/usr", "--ro-bind", "/lib", "/lib", "--ro-bind-try", "/lib64", "/lib64", "--ro-bind", "/bin", "/bin",
+			"--ro-bind", dir, "/work", "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--chdir", "/work",
+			"--", "/usr/bin/python3", "-B", "test_issue.py")
 	case "nsjail":
 		cmd = exec.CommandContext(ctx, "nsjail", "--mode", "o", "--quiet", "--disable_proc",
 			"--rlimit_as", "256", "--rlimit_cpu", "10", "--rlimit_nproc", "64", "--time_limit", strconv.Itoa(int(s.timeout.Seconds())),
