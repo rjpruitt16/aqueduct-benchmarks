@@ -224,7 +224,7 @@ if [ "$CONFIG" = D ]; then
 elif [ "$CONFIG" = C ]; then
   API_IMAGE=$FORK_API_IMAGE
   if [ "${PACING:-}" = 1 ]; then
-    API_PACING="-e AQUEDUCT_PACING_ENABLED=true -e AQUEDUCT_MAX_RPS=${PACING_MAX_RPS:-${RATE:-50}} -e AQUEDUCT_TARGET_DEPTH=${PACING_TARGET_DEPTH:-1000}"
+    API_PACING="-e AQUEDUCT_PACING_ENABLED=true -e AQUEDUCT_MAX_RPS=${PACING_MAX_RPS:-${RATE:-50}} -e AQUEDUCT_TARGET_DEPTH=${PACING_TARGET_DEPTH:-1000}${PACING_BACKLOG_SECONDS:+ -e AQUEDUCT_BACKLOG_SECONDS=$PACING_BACKLOG_SECONDS}"
   fi
 else
   # B gets Aquifer's machine budget back on the API.
@@ -398,7 +398,7 @@ fly machine list -a "$APP" --json \
   echo "drain_max=${DRAIN_MAX:-30m}"
   [ "$CONFIG" = C ] && echo "aquifer_rps=${AQUIFER_RPS:-${RATE:-50}} aquifer_concurrency=${AQUIFER_CONCURRENCY:-32}"
   [ "$CONFIG" = C ] && echo "aquifer_flush_ms=${AQUIFER_FLUSH_MS:-default}"
-  [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000} max_rps=${PACING_MAX_RPS:-${RATE:-50}}"
+  [ -n "$API_PACING" ] && echo "pacing=on target_depth=${PACING_TARGET_DEPTH:-1000} max_rps=${PACING_MAX_RPS:-${RATE:-50}} backlog_seconds=${PACING_BACKLOG_SECONDS:-60}"
   echo "pg_size=$PG_SIZE"
   [ -n "${MAX_ATTEMPTS:-}" ] && echo "max_attempts=$MAX_ATTEMPTS"
   [ -n "${AQUIFER_MAX_RETRIES:-}" ] && echo "aquifer_max_retries=$AQUIFER_MAX_RETRIES"

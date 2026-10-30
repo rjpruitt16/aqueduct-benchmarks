@@ -9,7 +9,7 @@ RUN go mod download
 COPY hatchet/ ./
 RUN CGO_ENABLED=0 go build -o /out/ ./cmd/...
 
-ARG AQUIFER_REF=630501d
+ARG AQUIFER_REF=b54348f
 RUN git clone https://github.com/rjpruitt16/aquifer /aquifer \
  && cd /aquifer && git checkout "$AQUIFER_REF" \
  && CGO_ENABLED=0 go build -ldflags "-X main.commit=$AQUIFER_REF" -o /out/aquifer ./cmd/aquifer
