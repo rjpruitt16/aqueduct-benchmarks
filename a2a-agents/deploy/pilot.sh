@@ -130,8 +130,9 @@ for kv in $SERIES_ENV DEADLINE=$DEADLINE LLM_MAX=$LLM_MAX DB_POOL=8 SLOTS=4 CI_R
   envflags="$envflags --env $kv"
 done
 # shellcheck disable=SC2086
+# "--" keeps flyctl from reading sh's -c as its own --config.
 retry fly machine run "$IMAGE" -a "$APP" -n pilot -r "$REGION" --vm-size performance-4x --vm-memory 8192 \
-  --restart no $envflags --detach sh -c 'series.sh; sleep 7200' >/dev/null 2>&1 \
+  --restart no $envflags --detach -- sh -c 'series.sh; sleep 7200' >> "$OUT/flyctl.log" 2>&1 \
   || { log "machine not created"; teardown; exit 1; }
 log "series started on $APP ($REGION); deadline $(date -u -d "@$DEADLINE" +%FT%TZ)"
 sleep 20
