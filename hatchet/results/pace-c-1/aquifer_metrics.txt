@@ -1,0 +1,4 @@
+aquifer_dispatch_attempts_total{target="hatchet-api",status_class="2xx"} 95884
+aquifer_admission_rejected_total{reason="queue_fair_share"} 2004
+aquifer_admission_rejected_total{reason="sync_lag"} 5
+aquifer_admission_rejected_total{reason="upstream_queue"} 23494

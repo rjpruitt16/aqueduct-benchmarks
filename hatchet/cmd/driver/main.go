@@ -12,14 +12,19 @@
 //	SCALE                 multiply every phase length (default 1; e.g. 0.05 locally)
 //	LISTEN                callback listen address (default :8080)
 //	OUT                   output directory (default ./out)
-//	SUBMITTERS            concurrent trigger requests (default 64)
+//	SUBMITTERS            concurrent trigger requests per tenant (default 32)
 //	POLL_EVERY            per-document status poll interval (default 5s)
 //	POLLERS               concurrent status polls (default 32)
 //	MAX_ATTEMPTS          trigger attempts before a document is rejected (default 6)
 //	DRAIN_MAX             how long to wait for outstanding work after the last phase (default 30m)
 //	AQUIFER_URL           submit through Aquifer at this base URL (C0, C); unset sends straight to Hatchet
 //	PUBLIC_URL            this driver's address as Aquifer reaches it (default http://localhost:8080)
-//	AQUIFER_MAX_RETRIES   Aquifer's retries forwarding each job to Hatchet (default 20)
+//	AQUIFER_MAX_RETRIES   Aquifer's retries forwarding each job to Hatchet (default 20; -1 until it succeeds)
+//	SCRAPE                "name url [regexp];..." endpoints to sample during the run into scrape.jsonl
+//	                      (a gateway's readiness or counters, Aquifer's metrics); regexp keeps matching lines
+//	SCRAPE_EVERY          sampling interval (default 2s)
+//	TRIGGER_API           send triggers here instead of HATCHET_API (a proxy in front of it, as in D);
+//	                      status polls still go to HATCHET_API
 package main
 
 import (
@@ -88,7 +93,8 @@ func main() {
 	}
 
 	h := &hatchetAPI{base: strings.TrimRight(api, "/"), token: token, tenant: tenantID,
-		http: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{MaxIdleConnsPerHost: 512}}}
+		http:        &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{MaxIdleConnsPerHost: 512}},
+		triggerBase: strings.TrimRight(os.Getenv("TRIGGER_API"), "/")}
 	l := newLedger()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -136,21 +142,35 @@ func main() {
 	}()
 	defer srv.Close()
 
-	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6),
-		queue: make(chan *doc, 1<<20)}
+	// Each tenant is its own producer with its own submitters, as separate
+	// applications would be: one tenant's slow or refused submissions never
+	// hold up another tenant's documents in the driver.
+	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6), idPrefix: fmt.Sprintf("r%x-", time.Now().Unix()),
+		queues: make(map[string]chan *doc, len(tenants))}
+	for _, t := range tenants {
+		r.queues[t.name] = make(chan *doc, 1<<20)
+	}
 	if base := os.Getenv("AQUIFER_URL"); base != "" {
 		r.aq = &aquiferAPI{base: strings.TrimRight(base, "/"), hatchet: h,
 			webhookURL: strings.TrimRight(env("PUBLIC_URL", "http://localhost:8080"), "/") + "/aquifer",
-			maxRetries: envInt("AQUIFER_MAX_RETRIES", 20), http: h.http}
+			maxRetries: aquiferMaxRetries(), http: h.http}
 		log.Printf("submitting through Aquifer at %s", base)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < envInt("SUBMITTERS", 64); i++ {
-		wg.Add(1)
-		go func() { defer wg.Done(); r.submitLoop(ctx) }()
+	for _, q := range r.queues {
+		for i := 0; i < envInt("SUBMITTERS", 32); i++ {
+			wg.Add(1)
+			go func() { defer wg.Done(); r.submitLoop(ctx, q) }()
+		}
 	}
 	pollCtx, stopPolling := context.WithCancel(ctx)
 	go r.pollLoop(pollCtx, envDuration("POLL_EVERY", 5*time.Second), envInt("POLLERS", 32))
+	scrapeCtx, stopScraping := context.WithCancel(context.Background())
+	scrapeDone := make(chan struct{})
+	go func() {
+		scrapeLoop(scrapeCtx, parseScrape(os.Getenv("SCRAPE")), envDuration("SCRAPE_EVERY", 2*time.Second), filepath.Join(out, "scrape.jsonl"))
+		close(scrapeDone)
+	}()
 	reportCtx, stopReporting := context.WithCancel(context.Background())
 	reportDone := make(chan struct{})
 	go func() { r.reportLoop(reportCtx, filepath.Join(out, "intervals.jsonl")); close(reportDone) }()
@@ -158,7 +178,9 @@ func main() {
 	start := time.Now()
 	r.offerPhases(ctx, phases)
 	overloadEnd := time.Now()
-	close(r.queue)
+	for _, q := range r.queues {
+		close(q)
+	}
 	wg.Wait()
 
 	// Let accepted work finish, bounded by DRAIN_MAX.
@@ -169,6 +191,8 @@ func main() {
 	stopPolling()
 	stopReporting()
 	<-reportDone
+	stopScraping()
+	<-scrapeDone
 
 	rep := buildReport(l, phases, start, overloadEnd)
 	b, _ := json.MarshalIndent(rep, "", "  ")
@@ -184,14 +208,18 @@ type run struct {
 	l           *ledger
 	rate        float64
 	maxAttempts int
-	queue       chan *doc
+	queues      map[string]chan *doc // per tenant
 	seq         atomic.Int64
-	phase       atomic.Value // current phase name
-	retries     atomic.Int64
+	// idPrefix makes document IDs unique to this run, so a run against a
+	// Hatchet that already holds an earlier run's documents (with workflow
+	// idempotency on, they'd collide) starts clean.
+	idPrefix string
+	phase    atomic.Value // current phase name
+	retries  atomic.Int64
 }
 
 // offerPhases generates documents for every tenant at its rate for each phase.
-// Documents wait in the driver's queue when all submitters are busy; that wait
+// Documents wait in their tenant's queue when its submitters are busy; that wait
 // counts toward their latency, since they were offered when generated.
 func (r *run) offerPhases(ctx context.Context, phases []phase) {
 	const tick = 100 * time.Millisecond
@@ -223,9 +251,9 @@ func (r *run) offerPhases(ctx context.Context, phases []phase) {
 				owed[i] += share * r.rate * tick.Seconds()
 				for owed[i] >= 1 {
 					owed[i]--
-					d := &doc{id: fmt.Sprintf("d%d", r.seq.Add(1)), tenant: t.name, offered: time.Now()}
+					d := &doc{id: fmt.Sprintf("%sd%d", r.idPrefix, r.seq.Add(1)), tenant: t.name, offered: time.Now()}
 					r.l.offer(d)
-					r.queue <- d
+					r.queues[t.name] <- d
 				}
 			}
 		}
@@ -235,8 +263,8 @@ func (r *run) offerPhases(ctx context.Context, phases []phase) {
 
 // submitLoop triggers queued documents, retrying with exponential backoff and
 // honoring Retry-After, the way a careful producer would.
-func (r *run) submitLoop(ctx context.Context) {
-	for d := range r.queue {
+func (r *run) submitLoop(ctx context.Context, queue <-chan *doc) {
+	for d := range queue {
 		pages := 3
 		for _, t := range tenants {
 			if t.name == d.tenant {
@@ -245,6 +273,7 @@ func (r *run) submitLoop(ctx context.Context) {
 		}
 		in := pipeline.Document{DocID: d.id, Tenant: d.tenant, Pages: pages}
 		backoff := time.Second
+		var waited time.Duration // time spent in backoff between attempts
 		for attempt := 1; ; attempt++ {
 			if ctx.Err() != nil {
 				return
@@ -253,19 +282,29 @@ func (r *run) submitLoop(ctx context.Context) {
 			if r.aq != nil {
 				var jobID string
 				if jobID, err = r.aq.submit(ctx, in); err == nil {
-					r.l.acceptByAquifer(d.id, jobID, attempt, time.Now())
+					r.l.acceptByAquifer(d.id, jobID, attempt, waited, time.Now())
 					break
 				}
 			} else {
 				var runID string
 				if runID, err = r.h.trigger(ctx, in); err == nil {
-					r.l.accept(d.id, runID, attempt, time.Now())
+					r.l.accept(d.id, runID, attempt, waited, time.Now())
 					break
 				}
+			}
+			// The document can complete while its trigger is still being
+			// retried: an attempt went through but its answer was lost, and
+			// with Hatchet's idempotency on every later attempt is a
+			// collision, which Hatchet's REST API answers with a 500. The
+			// completion callback settles it; stop retrying.
+			if r.l.isFinished(d.id) {
+				r.l.noteSettled()
+				break
 			}
 			retryable, ok := err.(*errRetryable)
 			if !ok || attempt >= r.maxAttempts {
 				log.Printf("rejected %s after %d attempt(s): %v", d.id, attempt, err)
+				r.l.reject(d.id, attempt, waited)
 				r.l.finish(d.id, outcomeRejected, time.Now())
 				break
 			}
@@ -274,11 +313,13 @@ func (r *run) submitLoop(ctx context.Context) {
 			if retryable.retryAfter > wait {
 				wait = retryable.retryAfter
 			}
+			slept := time.Now()
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(wait):
 			}
+			waited += time.Since(slept)
 			if backoff < 30*time.Second {
 				backoff *= 2
 			}
@@ -359,6 +400,15 @@ func envInt(name string, fallback int) int {
 		return v
 	}
 	return fallback
+}
+
+// aquiferMaxRetries is AQUIFER_MAX_RETRIES: 20 by default, -1 to retry until
+// the job succeeds.
+func aquiferMaxRetries() int {
+	if v, err := strconv.Atoi(os.Getenv("AQUIFER_MAX_RETRIES")); err == nil && v >= -1 {
+		return v
+	}
+	return 20
 }
 
 func envFloat(name string, fallback float64) float64 {

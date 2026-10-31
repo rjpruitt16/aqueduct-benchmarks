@@ -1,0 +1,212 @@
+[
+  {
+    "query": "-- name: CreateTasks :many\nWITH input AS (\n    SELECT\n        unnest($1::uuid[]) AS tenant_id,\n        unnest($2::text[]) AS queue,\n        unnest($3::text[]) AS action_id,\n        unnest($4::uuid[]) AS step_id,\n        unnest($5::text[]) AS step_readable_id,\n        unnest($6::uuid[]) AS workflow_i",
+    "calls": 243154,
+    "total_ms": 1597638.347213033,
+    "mean_ms": 6.5704793966497705,
+    "rows": 383204
+  },
+  {
+    "query": "-- name: ReleaseConcurrencySlots :batchexec\nWITH input AS (\n    SELECT\n        unnest($1::bigint[]) AS task_id,\n        unnest($2::timestamptz[]) AS task_inserted_at,\n        unnest($3::integer[]) AS retry_count\n), concurrency_slots_to_delete AS (\n    SELECT\n        task_id, task_inserted_at, task_r",
+    "calls": 180520,
+    "total_ms": 1398665.04406398,
+    "mean_ms": 7.747978307467363,
+    "rows": 383220
+  },
+  {
+    "query": "copy \"MessageQueueItem\" ( \"payload\", \"queueId\", \"readAfter\", \"expiresAt\" ) from stdin binary",
+    "calls": 1157549,
+    "total_ms": 1351083.757348017,
+    "mean_ms": 1.1671935765552672,
+    "rows": 1157549
+  },
+  {
+    "query": "-- name: ReadWorkflowRunByExternalId :one\nWITH runs AS (\n    SELECT\n        lt.dag_id AS dag_id,\n        lt.task_id AS task_id,\n        r.id AS id,\n        r.tenant_id,\n        r.inserted_at,\n        r.external_id,\n        r.readable_status,\n        r.kind,\n        r.workflow_id,\n        d.display_n",
+    "calls": 2020473,
+    "total_ms": 1266027.2087030394,
+    "mean_ms": 0.6265994193948801,
+    "rows": 1989421
+  },
+  {
+    "query": "-- name: ReleaseRetryQueueItems :batchexec\nWITH input AS (\n    SELECT\n        unnest($1::bigint[]) AS task_id,\n        unnest($2::timestamptz[]) AS task_inserted_at,\n        unnest($3::integer[]) AS retry_count\n), retry_queue_items_to_delete AS (\n    SELECT\n        task_id, task_inserted_at, task_re",
+    "calls": 180520,
+    "total_ms": 1253962.5312900033,
+    "mean_ms": 6.946391154941239,
+    "rows": 0
+  },
+  {
+    "query": "-- name: RunChildGroupRoundRobin :many\nWITH filled_parent_slots AS (\n    SELECT sort_id, tenant_id, workflow_id, workflow_version_id, workflow_run_id, strategy_id, completed_child_strategy_ids, child_strategy_ids, priority, key, is_filled\n    FROM v1_workflow_concurrency_slot wcs\n    WHERE\n        w",
+    "calls": 102360,
+    "total_ms": 1071590.566324013,
+    "mean_ms": 10.468841015279326,
+    "rows": 383204
+  },
+  {
+    "query": "-- name: RunParentGroupRoundRobin :exec\nWITH eligible_slots_per_group AS (\n    SELECT wsc.sort_id, wsc.tenant_id, wsc.workflow_id, wsc.workflow_version_id, wsc.workflow_run_id, wsc.strategy_id, wsc.completed_child_strategy_ids, wsc.child_strategy_ids, wsc.priority, wsc.key, wsc.is_filled\n    FROM (\n",
+    "calls": 102360,
+    "total_ms": 1013612.9096920035,
+    "mean_ms": 9.902431708597156,
+    "rows": 95782
+  },
+  {
+    "query": "-- name: UpdateTaskStatusesFromMQ :many\nWITH inputs AS (\n    SELECT\n        UNNEST($1::UUID[]) AS tenant_id,\n        UNNEST($2::BIGINT[]) AS task_id,\n        UNNEST($3::TIMESTAMPTZ[]) AS task_inserted_at,\n        UNNEST($4::v1_readable_status_olap[]) AS readable_status,\n        UNNEST($5::UUID[]) AS",
+    "calls": 240230,
+    "total_ms": 496661.3841839946,
+    "mean_ms": 2.067441136344322,
+    "rows": 1118153
+  },
+  {
+    "query": "-- name: ReleaseTasks :batchmany\nWITH input AS (\n    SELECT\n        unnest($1::bigint[]) AS task_id,\n        unnest($2::timestamptz[]) AS task_inserted_at,\n        unnest($3::integer[]) AS retry_count\n), runtimes_to_delete AS (\n    SELECT\n        task_id,\n        task_inserted_at,\n        retry_coun",
+    "calls": 180520,
+    "total_ms": 432316.3967099948,
+    "mean_ms": 2.3948393347551544,
+    "rows": 383220
+  },
+  {
+    "query": "-- name: UpdateDAGStatusesFromMQ :many\nWITH inputs AS (\n    SELECT\n        UNNEST($1::UUID[]) AS tenant_id,\n        UNNEST($2::BIGINT[]) AS dag_id,\n        UNNEST($3::TIMESTAMPTZ[]) AS dag_inserted_at\n), locked_dags AS (\n    SELECT id, inserted_at, tenant_id, external_id, display_name, workflow_id, ",
+    "calls": 234634,
+    "total_ms": 424999.60945799766,
+    "mean_ms": 1.8113300265860675,
+    "rows": 189866
+  },
+  {
+    "query": "-- name: CreateDAGsOLAP :exec\nWITH inputs AS (\n    SELECT\n        UNNEST($1::UUID[]) AS tenant_id,\n        UNNEST($2::BIGINT[]) AS id,\n        UNNEST($3::TIMESTAMPTZ[]) AS inserted_at,\n        UNNEST($4::UUID[]) AS external_id,\n        UNNEST($5::TEXT[]) AS display_name,\n        UNNEST($6::UUID[]) A",
+    "calls": 75154,
+    "total_ms": 384741.0970200052,
+    "mean_ms": 5.119369521515885,
+    "rows": 95796
+  },
+  {
+    "query": "-- name: SaveSatisfiedMatchConditions :many\nWITH match_counts AS (\n    SELECT\n        v1_match_id,\n        COUNT(DISTINCT CASE WHEN action = 'CREATE' THEN or_group_id END) AS total_create_groups,\n        COUNT(DISTINCT CASE WHEN is_satisfied AND action = 'CREATE' THEN or_group_id END) AS satisfied_c",
+    "calls": 132922,
+    "total_ms": 290986.833650999,
+    "mean_ms": 2.1891547949248618,
+    "rows": 287422
+  },
+  {
+    "query": "copy \"v1_task_events_olap\" ( \"tenant_id\", \"task_id\", \"task_inserted_at\", \"event_type\", \"workflow_id\", \"event_timestamp\", \"readable_status\", \"retry_count\", \"error_message\", \"output\", \"worker_id\", \"additional__event_data\", \"additional__event_message\", \"external_id\", \"durable_invocation_count\" ) from s",
+    "calls": 240230,
+    "total_ms": 255055.7130450028,
+    "mean_ms": 1.061714661137235,
+    "rows": 1917195
+  },
+  {
+    "query": "-- name: CreateTasksOLAP :exec\nWITH inputs AS (\n    SELECT\n        UNNEST($1::UUID[]) AS tenant_id,\n        UNNEST($2::BIGINT[]) AS id,\n        UNNEST($3::TIMESTAMPTZ[]) AS inserted_at,\n        UNNEST($4::TEXT[]) AS queue,\n        UNNEST($5::TEXT[]) AS action_id,\n        UNNEST($6::UUID[]) AS step_i",
+    "calls": 137996,
+    "total_ms": 235035.1206740003,
+    "mean_ms": 1.7032024165483155,
+    "rows": 383221
+  },
+  {
+    "query": "-- name: ReconcileTaskStatusesFromEvents :many\nWITH inputs AS (\n    SELECT\n        UNNEST($1::BIGINT[]) AS task_id,\n        UNNEST($2::TIMESTAMPTZ[]) AS task_inserted_at\n), locked_tasks AS (\n    SELECT tenant_id, id, inserted_at, external_id, queue, action_id, step_id, workflow_id, workflow_version_",
+    "calls": 137996,
+    "total_ms": 228424.1069999986,
+    "mean_ms": 1.6552951317429367,
+    "rows": 42852
+  },
+  {
+    "query": "-- name: ReadPayloadsOLAP :many\nSELECT tenant_id, external_id, location, external_location_key, inline_content, inserted_at, updated_at\nFROM v1_payloads_olap\nWHERE\n    tenant_id = $1::UUID\n    AND external_id = ANY($2::UUID[])",
+    "calls": 2010128,
+    "total_ms": 225356.2456740211,
+    "mean_ms": 0.11211039579270987,
+    "rows": 2010128
+  },
+  {
+    "query": "-- name: PutPayloads :exec\nWITH inputs AS (\n    SELECT\n        UNNEST($1::UUID[]) AS external_id,\n        UNNEST($2::TIMESTAMPTZ[]) AS inserted_at,\n        UNNEST($3::JSONB[]) AS payload,\n        UNNEST($4::UUID[]) AS tenant_id,\n        UNNEST(CAST($5::TEXT[] AS v1_payload_location_olap[])) AS locat",
+    "calls": 283061,
+    "total_ms": 200141.56198399438,
+    "mean_ms": 0.707061594440781,
+    "rows": 862249
+  },
+  {
+    "query": "-- name: InsertOtelSpans :exec\nWITH inputs AS (\n    SELECT\n        UNNEST($1::UUID[]) AS tenant_id,\n        UNNEST($2::BYTEA[]) AS trace_id,\n        UNNEST($3::BYTEA[]) AS span_id,\n        UNNEST($4::TEXT[]) AS parent_span_id,\n        UNNEST($5::TEXT[]) AS span_name,\n        UNNEST(CAST($6::TEXT[] A",
+    "calls": 184341,
+    "total_ms": 188247.2361739994,
+    "mean_ms": 1.0211902733195666,
+    "rows": 862254
+  },
+  {
+    "query": "-- name: FlushAssignedQueueItems :many\nWITH assign_input AS (\n    SELECT\n        task_id,\n        task_inserted_at,\n        retry_count,\n        worker_id,\n        step_timeout\n    FROM\n        (\n            SELECT\n                UNNEST($1::bigint[]) AS task_id,\n                UNNEST($2::timestamp",
+    "calls": 68471,
+    "total_ms": 175584.189223,
+    "mean_ms": 2.564358476187003,
+    "rows": 383207
+  },
+  {
+    "query": "-- name: TryAdvisoryLockMany :many\nWITH keys AS (\n    SELECT UNNEST($1::BIGINT[]) AS key\n), ordered_keys AS (\n    SELECT key\n    FROM keys\n    ORDER BY key\n)\n\nSELECT key::BIGINT, pg_try_advisory_xact_lock(key)::BOOLEAN AS \"acquired\"\nFROM ordered_keys",
+    "calls": 845464,
+    "total_ms": 158849.49244599824,
+    "mean_ms": 0.18788439536869794,
+    "rows": 4383392
+  },
+  {
+    "query": "-- name: WritePayloads :exec\nWITH inputs AS (\n    SELECT DISTINCT\n        UNNEST($1::BIGINT[]) AS id,\n        UNNEST($2::TIMESTAMPTZ[]) AS inserted_at,\n        UNNEST($3::UUID[]) AS external_id,\n        UNNEST(CAST($4::TEXT[] AS v1_payload_type[])) AS type,\n        UNNEST(CAST($5::TEXT[] AS v1_paylo",
+    "calls": 409118,
+    "total_ms": 158296.79362399701,
+    "mean_ms": 0.3869220949066012,
+    "rows": 862206
+  },
+  {
+    "query": "copy \"v1_match_condition\" ( \"v1_match_id\", \"tenant_id\", \"event_type\", \"event_key\", \"event_resource_hint\", \"readable_data_key\", \"or_group_id\", \"expression\", \"action\", \"is_satisfied\", \"data\" ) from stdin binary",
+    "calls": 95676,
+    "total_ms": 127740.72428000042,
+    "mean_ms": 1.3351386374848258,
+    "rows": 1149384
+  },
+  {
+    "query": "-- name: ReadMessages :many\nWITH messages AS (\n    SELECT\n        id, payload, \"readAfter\", \"expiresAt\", \"queueId\", status\n    FROM\n        \"MessageQueueItem\"\n    WHERE\n        \"expiresAt\" \u003e NOW()\n        AND \"queueId\" = $1::text\n        AND \"readAfter\" \u003c= NOW()\n        AND \"status\" = 'PENDING'\n    ",
+    "calls": 125208,
+    "total_ms": 124630.95311299985,
+    "mean_ms": 0.9953912937911313,
+    "rows": 1157596
+  },
+  {
+    "query": "-- name: GetSatisfiedMatchConditions :many\nWITH input AS (\n    SELECT\n        UNNEST($1::BIGINT[]) AS match_id,\n        UNNEST($2::BIGINT[]) AS condition_id,\n        UNNEST($3::JSONB[]) AS data\n), locked_matches AS (\n    SELECT\n        m.id\n    FROM\n        v1_match m\n    WHERE\n        m.id = ANY($1",
+    "calls": 132922,
+    "total_ms": 114947.98818899978,
+    "mean_ms": 0.8647777507786506,
+    "rows": 287422
+  },
+  {
+    "query": "-- name: BulkAckMessages :exec\nDELETE FROM\n    \"MessageQueueItem\"\nWHERE\n    \"id\" = ANY($1::bigint[])\n    AND \"status\" = 'ASSIGNED'",
+    "calls": 1157613,
+    "total_ms": 108174.99627900391,
+    "mean_ms": 0.093446597679018,
+    "rows": 1157613
+  },
+  {
+    "query": "-- name: LockParentConcurrencySlots :batchexec\nWITH input AS (\n    SELECT\n        unnest($1::bigint[]) AS task_id,\n        unnest($2::timestamptz[]) AS task_inserted_at,\n        unnest($3::integer[]) AS retry_count\n), concurrency_slots_to_delete AS (\n    SELECT\n        task_id, task_inserted_at, tas",
+    "calls": 180520,
+    "total_ms": 96162.33089600039,
+    "mean_ms": 0.5326962713051239,
+    "rows": 383220
+  },
+  {
+    "query": "-- name: CreateTaskEvents :many\n-- We get a FOR UPDATE lock on tasks to prevent concurrent writes to the task events\n-- tables for each task\nWITH locked_tasks AS (\n    SELECT\n        id\n    FROM\n        v1_task\n    WHERE\n        id = ANY($2::bigint[])\n        AND tenant_id = $1::uuid\n    -- order by",
+    "calls": 180520,
+    "total_ms": 89784.06579800039,
+    "mean_ms": 0.4973635375470843,
+    "rows": 383220
+  },
+  {
+    "query": "-- name: InsertOTelTraceLookup :exec\nWITH inputs AS (\n    SELECT\n        UNNEST($1::UUID[]) AS tenant_id,\n        UNNEST($2::UUID[]) AS external_id,\n        UNNEST($3::INT[]) AS retry_count,\n        UNNEST($4::BYTEA[]) AS trace_id,\n        UNNEST($5::TIMESTAMPTZ[]) AS start_time\n)\nINSERT INTO v1_ote",
+    "calls": 184341,
+    "total_ms": 88602.42999900003,
+    "mean_ms": 0.4806441865835639,
+    "rows": 1243623
+  },
+  {
+    "query": "-- name: ReleaseQueueItems :batchexec\nWITH input AS (\n    SELECT\n        unnest($1::bigint[]) AS task_id,\n        unnest($2::timestamptz[]) AS task_inserted_at,\n        unnest($3::integer[]) AS retry_count\n), queue_items_to_delete AS (\n    SELECT\n        task_id, task_inserted_at, retry_count\n    FR",
+    "calls": 180520,
+    "total_ms": 71159.27607500053,
+    "mean_ms": 0.39419053885995925,
+    "rows": 0
+  },
+  {
+    "query": "-- name: ListTaskParentOutputs :many\nWITH input AS (\n    SELECT\n        UNNEST($1::BIGINT[]) AS task_id,\n        UNNEST($2::TIMESTAMPTZ[]) AS task_inserted_at\n), task_outputs AS (\n    SELECT\n        t.id,\n        t.inserted_at,\n        e.retry_count,\n        t.tenant_id,\n        t.dag_id,\n        t.",
+    "calls": 68471,
+    "total_ms": 67680.71905599983,
+    "mean_ms": 0.9884581655883476,
+    "rows": 574849
+  }
+]

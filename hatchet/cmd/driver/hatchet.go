@@ -23,6 +23,9 @@ type hatchetAPI struct {
 	token  string
 	tenant string
 	http   *http.Client
+	// triggerBase, when set, is where triggers go instead of base: a proxy
+	// in front of the API (Envoy in D). Status polls still go to base.
+	triggerBase string
 }
 
 // errRetryable marks a submission the producer should retry; retryAfter is
@@ -49,13 +52,19 @@ func (h *hatchetAPI) trigger(ctx context.Context, d pipeline.Document) (string, 
 		"additionalMetadata": map[string]string{"tenant": d.Tenant, "doc_id": d.DocID},
 		"return_only_id":     onlyID,
 	})
-	url := fmt.Sprintf("%s/api/v1/stable/tenants/%s/workflow-runs/trigger", h.base, h.tenant)
+	base := h.base
+	if h.triggerBase != "" {
+		base = h.triggerBase
+	}
+	url := fmt.Sprintf("%s/api/v1/stable/tenants/%s/workflow-runs/trigger", base, h.tenant)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+h.token)
+	// A proxy in front of the API keys its per-tenant limits on this.
+	req.Header.Set("X-Tenant", d.Tenant)
 	resp, err := h.http.Do(req)
 	if err != nil {
 		return "", &errRetryable{err: err}

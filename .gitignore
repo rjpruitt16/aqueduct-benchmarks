@@ -3,3 +3,4 @@ results/*/raw/
 *.log
 .venv/
 .env
+.smoke/

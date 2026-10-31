@@ -1,0 +1,11 @@
+config=C
+started=2026-10-24T17:14:01Z
+hatchet=v0.110.8
+harness_image=ghcr.io/rjpruitt16/aqueduct-benchmarks-hatchet:60f094025f3e1cefef0685af66614d30984190a8
+api_image=ghcr.io/rjpruitt16/hatchet-aquifer-api:v0.110.8-aqueduct-ff494eb
+region=iad
+workers=3
+rate=20
+tenant_max_runs=50
+engine_db_conns=100 trigger_slots=20 buffer_size=50 buffer_flush=25ms
+aquifer_flush_ms=default

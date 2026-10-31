@@ -1,0 +1,260 @@
+{
+  "started": "2026-10-25T23:40:10.493963284Z",
+  "phases": [
+    {
+      "name": "steady",
+      "start": "2026-10-25T23:40:10.493963284Z",
+      "end": "2026-10-25T23:50:10.493963284Z"
+    },
+    {
+      "name": "burst",
+      "start": "2026-10-25T23:50:10.493963284Z",
+      "end": "2026-10-26T00:00:10.493963284Z"
+    },
+    {
+      "name": "sustained",
+      "start": "2026-10-26T00:00:10.493963284Z",
+      "end": "2026-10-26T00:20:10.493963284Z"
+    },
+    {
+      "name": "recovery",
+      "start": "2026-10-26T00:20:10.493963284Z",
+      "end": "2026-10-26T00:50:10.493963284Z"
+    }
+  ],
+  "tenants": {
+    "accounting": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 1800,
+        "recovery": 5400,
+        "steady": 1799,
+        "sustained": 3600
+      },
+      "outcomes": {
+        "completed": 12600
+      },
+      "p50_ms_by_phase": {
+        "after": 2192.4,
+        "burst": 1502.4,
+        "overload": 1599.3,
+        "recovery": 1737.6,
+        "steady": 639.7,
+        "sustained": 1639.8
+      },
+      "p99_ms_by_phase": {
+        "after": 2192.4,
+        "burst": 2685.2,
+        "overload": 2914.3,
+        "recovery": 3157.1,
+        "steady": 1793.3,
+        "sustained": 2967.7
+      },
+      "slowdown_p99": 1.6251045558467632,
+      "longest_gap_s": 1.504984511,
+      "to_run_id_p99_ms": 141.8,
+      "avg_attempts": 1
+    },
+    "law-firm": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 32995,
+        "recovery": 9002,
+        "steady": 2999,
+        "sustained": 30003
+      },
+      "outcomes": {
+        "completed": 74918,
+        "rejected": 82
+      },
+      "p50_ms_by_phase": {
+        "after": 1202987.1,
+        "burst": 813238,
+        "overload": 1551727.4,
+        "recovery": 1814223,
+        "steady": 631.2,
+        "sustained": 2040310.8
+      },
+      "p99_ms_by_phase": {
+        "after": 1202987.1,
+        "burst": 1610892.2,
+        "overload": 2408126.5,
+        "recovery": 2410899,
+        "steady": 1791.2,
+        "sustained": 2416088.2
+      },
+      "slowdown_p99": 1344.4207793657883,
+      "longest_gap_s": 0.95450088,
+      "to_run_id_p99_ms": 2406337.1,
+      "avg_attempts": 1.30332
+    },
+    "small-1": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1680
+      },
+      "p50_ms_by_phase": {
+        "after": 1979.9,
+        "burst": 1575.8,
+        "overload": 1662.5,
+        "recovery": 1801.3,
+        "steady": 748,
+        "sustained": 1707.5
+      },
+      "p99_ms_by_phase": {
+        "after": 1979.9,
+        "burst": 2703.9,
+        "overload": 2965.7,
+        "recovery": 3306.5,
+        "steady": 1378.5,
+        "sustained": 3057.3
+      },
+      "slowdown_p99": 2.151396445411679,
+      "longest_gap_s": 4.210857751,
+      "to_run_id_p99_ms": 147.2,
+      "avg_attempts": 1
+    },
+    "small-2": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1680
+      },
+      "p50_ms_by_phase": {
+        "after": 2427.6,
+        "burst": 1579,
+        "overload": 1669.9,
+        "recovery": 1798,
+        "steady": 745.6,
+        "sustained": 1720
+      },
+      "p99_ms_by_phase": {
+        "after": 2427.6,
+        "burst": 2799.6,
+        "overload": 2965.7,
+        "recovery": 3391,
+        "steady": 1377.7,
+        "sustained": 3013.6
+      },
+      "slowdown_p99": 2.1526457138709443,
+      "longest_gap_s": 4.011403784,
+      "to_run_id_p99_ms": 148.7,
+      "avg_attempts": 1
+    },
+    "small-3": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1680
+      },
+      "p50_ms_by_phase": {
+        "after": 1979.2,
+        "burst": 1553.6,
+        "overload": 1666.8,
+        "recovery": 1806.8,
+        "steady": 751.4,
+        "sustained": 1723.3
+      },
+      "p99_ms_by_phase": {
+        "after": 1979.2,
+        "burst": 2849.2,
+        "overload": 2991.7,
+        "recovery": 3184.1,
+        "steady": 1377.7,
+        "sustained": 3069.9
+      },
+      "slowdown_p99": 2.1715177469695868,
+      "longest_gap_s": 4.00628059,
+      "to_run_id_p99_ms": 151.8,
+      "avg_attempts": 1
+    },
+    "small-4": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1680
+      },
+      "p50_ms_by_phase": {
+        "after": 2069.7,
+        "burst": 1559.1,
+        "overload": 1659.6,
+        "recovery": 1789.3,
+        "steady": 753.6,
+        "sustained": 1703.7
+      },
+      "p99_ms_by_phase": {
+        "after": 2069.7,
+        "burst": 2800.2,
+        "overload": 2959.9,
+        "recovery": 3183.7,
+        "steady": 1311.8,
+        "sustained": 3013.8
+      },
+      "slowdown_p99": 2.256365299588352,
+      "longest_gap_s": 4.010686683,
+      "to_run_id_p99_ms": 154.6,
+      "avg_attempts": 1
+    },
+    "small-5": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1680
+      },
+      "p50_ms_by_phase": {
+        "after": 2427.3,
+        "burst": 1590.5,
+        "overload": 1661,
+        "recovery": 1800.1,
+        "steady": 745.3,
+        "sustained": 1700.5
+      },
+      "p99_ms_by_phase": {
+        "after": 2427.3,
+        "burst": 2786.9,
+        "overload": 3014.1,
+        "recovery": 3259.5,
+        "steady": 1377.3,
+        "sustained": 3185.8
+      },
+      "slowdown_p99": 2.1884121106512744,
+      "longest_gap_s": 4.004828219,
+      "to_run_id_p99_ms": 153,
+      "avg_attempts": 1
+    }
+  },
+  "totals": {
+    "completed": 95918,
+    "rejected": 82
+  },
+  "duplicate_completions": 0,
+  "outstanding_at_end": 0,
+  "jain_overload": 0.9999997924652686,
+  "drain_seconds": 3004.731493684
+}

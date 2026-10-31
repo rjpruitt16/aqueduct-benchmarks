@@ -1,0 +1,215 @@
+{
+  "started": "2026-10-24T04:47:19.003098006Z",
+  "phases": [
+    {
+      "name": "r20",
+      "start": "2026-10-24T04:47:19.003098006Z",
+      "end": "2026-10-24T04:52:19.003098006Z"
+    },
+    {
+      "name": "r25",
+      "start": "2026-10-24T04:52:19.003098006Z",
+      "end": "2026-10-24T04:57:19.003098006Z"
+    },
+    {
+      "name": "r30",
+      "start": "2026-10-24T04:57:19.003098006Z",
+      "end": "2026-10-24T05:02:19.003098006Z"
+    }
+  ],
+  "tenants": {
+    "accounting": {
+      "offered_by_phase": {
+        "r20": 224,
+        "r25": 225,
+        "r30": 225
+      },
+      "outcomes": {
+        "completed": 674
+      },
+      "p50_ms_by_phase": {
+        "r20": 2086.1,
+        "r25": 2170.4,
+        "r30": 3038.8
+      },
+      "p99_ms_by_phase": {
+        "r20": 3624.8,
+        "r25": 3282.6,
+        "r30": 4903.8
+      },
+      "slowdown_p99": 0,
+      "longest_gap_s": 0,
+      "to_run_id_p99_ms": 197.5,
+      "avg_attempts": 1
+    },
+    "law-firm": {
+      "offered_by_phase": {
+        "after": 3,
+        "r20": 5623,
+        "r25": 7124,
+        "r30": 8625
+      },
+      "outcomes": {
+        "completed": 21375
+      },
+      "p50_ms_by_phase": {
+        "after": 259149.9,
+        "r20": 2141.5,
+        "r25": 22784.7,
+        "r30": 199021.7
+      },
+      "p99_ms_by_phase": {
+        "after": 259187.4,
+        "r20": 7241.8,
+        "r25": 56719.7,
+        "r30": 259084.5
+      },
+      "slowdown_p99": 0,
+      "longest_gap_s": 0,
+      "to_run_id_p99_ms": 196.7,
+      "avg_attempts": 1
+    },
+    "small-1": {
+      "offered_by_phase": {
+        "after": 1,
+        "r20": 29,
+        "r25": 30,
+        "r30": 30
+      },
+      "outcomes": {
+        "completed": 90
+      },
+      "p50_ms_by_phase": {
+        "after": 5914.2,
+        "r20": 2188.9,
+        "r25": 2393.7,
+        "r30": 3446.3
+      },
+      "p99_ms_by_phase": {
+        "after": 5914.2,
+        "r20": 3163.7,
+        "r25": 3543.5,
+        "r30": 4675.3
+      },
+      "slowdown_p99": 0,
+      "longest_gap_s": 0,
+      "to_run_id_p99_ms": 248.8,
+      "avg_attempts": 1
+    },
+    "small-2": {
+      "offered_by_phase": {
+        "after": 1,
+        "r20": 29,
+        "r25": 30,
+        "r30": 30
+      },
+      "outcomes": {
+        "completed": 90
+      },
+      "p50_ms_by_phase": {
+        "after": 5913.5,
+        "r20": 2189,
+        "r25": 2481.9,
+        "r30": 3447.2
+      },
+      "p99_ms_by_phase": {
+        "after": 5913.5,
+        "r20": 3142.4,
+        "r25": 3240.4,
+        "r30": 4672.6
+      },
+      "slowdown_p99": 0,
+      "longest_gap_s": 0,
+      "to_run_id_p99_ms": 227.3,
+      "avg_attempts": 1
+    },
+    "small-3": {
+      "offered_by_phase": {
+        "after": 1,
+        "r20": 29,
+        "r25": 30,
+        "r30": 30
+      },
+      "outcomes": {
+        "completed": 90
+      },
+      "p50_ms_by_phase": {
+        "after": 5921.2,
+        "r20": 2284.7,
+        "r25": 2419,
+        "r30": 3402.7
+      },
+      "p99_ms_by_phase": {
+        "after": 5921.2,
+        "r20": 3140.3,
+        "r25": 3241.2,
+        "r30": 5012.4
+      },
+      "slowdown_p99": 0,
+      "longest_gap_s": 0,
+      "to_run_id_p99_ms": 247.5,
+      "avg_attempts": 1
+    },
+    "small-4": {
+      "offered_by_phase": {
+        "after": 1,
+        "r20": 29,
+        "r25": 30,
+        "r30": 30
+      },
+      "outcomes": {
+        "completed": 90
+      },
+      "p50_ms_by_phase": {
+        "after": 5920.3,
+        "r20": 2217.8,
+        "r25": 2448.9,
+        "r30": 3242.6
+      },
+      "p99_ms_by_phase": {
+        "after": 5920.3,
+        "r20": 3163.7,
+        "r25": 3240.7,
+        "r30": 5012.8
+      },
+      "slowdown_p99": 0,
+      "longest_gap_s": 0,
+      "to_run_id_p99_ms": 208.9,
+      "avg_attempts": 1
+    },
+    "small-5": {
+      "offered_by_phase": {
+        "after": 1,
+        "r20": 29,
+        "r25": 30,
+        "r30": 30
+      },
+      "outcomes": {
+        "completed": 90
+      },
+      "p50_ms_by_phase": {
+        "after": 5249.3,
+        "r20": 2195.9,
+        "r25": 2393.4,
+        "r30": 3398.7
+      },
+      "p99_ms_by_phase": {
+        "after": 5249.3,
+        "r20": 3142.4,
+        "r25": 3544.7,
+        "r30": 4671.3
+      },
+      "slowdown_p99": 0,
+      "longest_gap_s": 0,
+      "to_run_id_p99_ms": 226.2,
+      "avg_attempts": 1
+    }
+  },
+  "totals": {
+    "completed": 22499
+  },
+  "duplicate_completions": 0,
+  "outstanding_at_end": 0,
+  "jain_overload": 0,
+  "drain_seconds": 0
+}

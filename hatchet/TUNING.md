@@ -16,10 +16,10 @@ Values marked *calibrated* are fixed during the calibration run and then held co
 
 | Setting | Default | B and C | Why |
 |---|---|---|---|
-| `DATABASE_MAX_CONNS` | 50 | *calibrated* (start at 100) | The guide's first lever for high throughput. Postgres `max_connections` is 400, so engine and API together stay below it |
-| `SERVER_GRPC_TRIGGER_WRITE_SLOTS` | 5 | *calibrated* | Concurrent fast-path trigger writes. Past this, triggers fall back to the message queue (more database writes). Found in the source; not in the performance guide |
-| `SERVER_DEFAULT_BUFFER_SIZE` | 10 | *calibrated* (try 50) | Larger buffers batch more message-queue writes per round-trip, lowering database load for a little latency |
-| `SERVER_DEFAULT_BUFFER_FLUSH_INTERVAL` | 10 ms | *calibrated* (try 25 ms) | Same trade-off as the buffer size |
+| `DATABASE_MAX_CONNS` | 50 | 100 | The guide's first lever for high throughput. Postgres `max_connections` is 400, so engine and API together stay below it |
+| `SERVER_GRPC_TRIGGER_WRITE_SLOTS` | 5 | 20 (calibrated) | Concurrent fast-path trigger writes. Past this, triggers fall back to the message queue (more database writes). Found in the source; not in the performance guide |
+| `SERVER_DEFAULT_BUFFER_SIZE` | 10 | 50 (calibrated) | Larger buffers batch more message-queue writes per round-trip, lowering database load for a little latency |
+| `SERVER_DEFAULT_BUFFER_FLUSH_INTERVAL` | 10 ms | 25 ms (calibrated) | Same trade-off as the buffer size |
 | `SERVER_ENFORCE_LIMITS` | false | false | Tenant limits stay off. Enabled, the defaults (2,000 task runs per 24 h) would reject the benchmark itself |
 
 `SERVER_MSGQUEUE_RABBITMQ_QOS` does not apply: Postgres is the message queue.
@@ -47,3 +47,22 @@ The guide's aggressive autovacuum settings are for databases storing more than 5
 ## Calibration
 
 Run B alone at increasing `RATE` until Postgres can no longer keep up (sustained queue-wait growth, or database CPU pinned). Call the highest stable rate 100%, and record it with the calibrated settings above. All measured runs use that rate.
+
+### Result (2026-10-23, Fly iad, v0.110.8)
+
+**100% is 20 documents/s.** Every measured run uses `RATE=20`, `TENANT_MAX_RUNS=50`, `TRIGGER_SLOTS=20`, `BUFFER_SIZE=50`, `BUFFER_FLUSH=25ms`, `ENGINE_DB_CONNS=100`.
+
+Each calibration run stepped the offered rate up in 5-minute steps. Raw data is in the run directories under `results/` (`calib-4`, `-5`, `-7`, `-9`).
+
+| Offered (docs/s) | Completed: defaults, max_runs 50 | max_runs 200 | Tuned engine, max_runs 50 |
+|---|---|---|---|
+| 20 | 19.9 | 19.8 | 19.8 |
+| 25 | 18.8 | – | 21.8 |
+| 30 | 14.8 | 23.8 | 17.8 |
+| 40 | 17 | 16.8 | – |
+| 100 | 8 | – | – |
+
+- **Postgres is the limit.** From 20 docs/s upward the Postgres machine runs at 185–195% CPU (both cores); the engine uses about one core and the workers and driver are nearly idle.
+- **Past the limit, throughput falls.** The backlog is held as rows in `v1_concurrency_slot`, and rows read per second grow with it (about 50k at 20 docs/s, 400k–600k with a 50k backlog). The more is queued, the fewer documents complete.
+- **`max_runs` 200 is not better.** It adds little throughput and makes small tenants 2–3x slower once the bulk tenant is backlogged (small-tenant p50 8–14 s against 3–4 s), so B keeps 50.
+- **The engine buffers help past the limit** (about 15–20% more completed at 25 and 30 docs/s, smaller backlog), so B uses them. They do not move the knee.
