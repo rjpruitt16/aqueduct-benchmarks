@@ -44,10 +44,12 @@ for run in sys.argv[1:]:
     law = tenants["law-firm"]
     small_p99 = max(tenants[t]["p99_ms_by_phase"].get("overload", 0) for t in SMALL) / 1000
     acc_p99 = tenants["accounting"]["p99_ms_by_phase"].get("overload", 0) / 1000
+    d = s.get('drain_seconds', 0)
+    drain = "never" if d < 0 else f"{d / 60:.1f} min"
     print(f"== {name}  ({info.get('config', '?')}, pg {info.get('pg_size', 'performance-2x')})")
     print(f"  offered {offered}  completed {done} ({100 * done / max(offered, 1):.2f}%)  "
           f"rejected {s['totals'].get('rejected', 0)}  unfinished {s.get('outstanding_at_end', 0)}  "
-          f"duplicates {s.get('duplicate_completions', 0)}  drain {s.get('drain_seconds', 0) / 60:.1f} min")
+          f"duplicates {s.get('duplicate_completions', 0)}  drain {drain}")
     print(f"  producer requests per document {attempts:.2f}")
     met = read(run + "/aquifer_metrics.txt")
     if met:

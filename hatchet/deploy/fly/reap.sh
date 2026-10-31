@@ -7,12 +7,15 @@
 #   - if its driver is still running, let the run finish (up to MAX_AGE_MIN):
 #     its scheduled events may already have happened, and only the copy and
 #     cleanup are missing;
+#   - if its driver is stopped without having been read (run.sh failed and
+#     kept the app for inspection), keep it: its volume may hold results, and
+#     a stopped app costs only the volume;
 #   - if its driver never started (setup died), save its Fly logs and destroy
 #     it once the grace period has passed: the run is lost, but it stops
 #     costing money.
 #
-# Any app older than MAX_AGE_MIN is destroyed whatever its state (after the
-# same copy, if it finished). Safe to run repeatedly; meant to run every few
+# Any other app older than MAX_AGE_MIN is destroyed (after the same copy, if
+# it finished). An app whose results didn't all copy is kept. Safe to run repeatedly; meant to run every few
 # minutes from a loop that outlives this machine's own processes.
 #
 # Usage, from hatchet/: deploy/fly/reap.sh   (FLY_ORG and FLY_API_TOKEN set)
@@ -29,7 +32,7 @@ now=$(date +%s)
 
 act() { if [ "${DRY_RUN:-}" = 1 ]; then echo "  (dry run) $*"; else "$@"; fi; }
 
-for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-hatchet-'); do
+for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-hatchet-'); do
   NAME=${APP#aqb-hatchet-}
   OUT=results/$NAME
   alive=""
@@ -62,18 +65,25 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
     echo "$NAME: no run.sh, driver still running, ${age} min old; letting it finish"
     continue
   fi
+  if [ -z "$done_status" ] && [ "$drv_state" = stopped ]; then
+    echo "$NAME: driver stopped, results unread; kept for inspection (destroy by hand)"
+    continue
+  fi
   if [ -z "$done_status" ] && [ "$age" -lt "$GRACE" ]; then
     echo "$NAME: no run.sh, driver not started, ${age} min old; waiting out the grace period"
     continue
   fi
   echo "$NAME: run.sh ${alive:+alive}${alive:-gone}, ${age} min old, driver ${done_status:+finished ($done_status)}${done_status:-not finished}"
   mkdir -p "${OUT:?}"
+  missing=""
   if [ -n "$done_status" ] && [ "${DRY_RUN:-}" != 1 ]; then
     for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE; do
+      got=""
       for try in 1 2 3; do
-        timeout 120 fly ssh sftp get -a "$APP" --machine "$drv" "/out/$f" "${OUT:?}/${f:?}" >/dev/null 2>&1 && break
+        timeout 120 fly ssh sftp get -a "$APP" --machine "$drv" "/out/$f" "${OUT:?}/${f:?}" >/dev/null 2>&1 && { got=1; break; }
         rm -f "${OUT:?}/${f:?}"; sleep 5
       done
+      [ -n "$got" ] || missing="$missing $f"
     done
     aq=$(echo "$machines" | jq -r '.[] | select(.name == "aquifer") | .id')
     if [ -n "$aq" ]; then
@@ -84,16 +94,20 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
     # CPU over the schedule and drain, as run.sh records it.
     if [ -s "$OUT/summary.json" ]; then
       start=$(date -d "$(jq -r '.started' "$OUT/summary.json" | sed 's/\.[0-9]*Z$/Z/')" +%s)
-      last=$(jq -r '.phases[-1].end' "$OUT/summary.json" | sed 's/\.[0-9]*Z$/Z/')
-      end=$(( $(date -d "$last" +%s) + $(jq -r '.drain_seconds // 0 | floor' "$OUT/summary.json") ))
+      # The last interval sample covers the drain; drain_seconds can't be
+      # added to the last phase's end (it counts from the sustained phase, -1
+      # when never drained).
+      last=$( { [ -s "$OUT/intervals.jsonl" ] && tail -1 "$OUT/intervals.jsonl" | jq -r '.at'; } || jq -r '.phases[-1].end' "$OUT/summary.json")
+      end=$(date -d "$(echo "$last" | sed 's/\.[0-9]*Z$/Z/')" +%s)
       q="sum by (instance) (rate(fly_instance_cpu{app=\"$APP\",mode=~\"user|nice|system|irq|softirq\"}[1m])) / 100"
       curl -s -G -H "Authorization: $auth" "https://api.fly.io/prometheus/$FLY_ORG/api/v1/query_range" \
         --data-urlencode "query=$q" --data-urlencode "start=$start" --data-urlencode "end=$end" \
         --data-urlencode "step=30" > "$OUT/cpu.raw.json" 2>/dev/null || true
       jq '[.[] | {(.id): .name}] | add' "$OUT/machines.json" > "$OUT/cpu.names.json"
-      jq -n --slurpfile raw "$OUT/cpu.raw.json" --slurpfile names "$OUT/cpu.names.json" \
-        '{unit: "cores", machines: [$raw[0].data.result[]? | {machine: ($names[0][.metric.instance] // .metric.instance), values}]}' \
-        > "$OUT/cpu.json" 2>/dev/null || true
+      jq -e '.status == "success"' "$OUT/cpu.raw.json" >/dev/null 2>&1 && \
+        jq -n --slurpfile raw "$OUT/cpu.raw.json" --slurpfile names "$OUT/cpu.names.json" \
+          '{unit: "cores", machines: [$raw[0].data.result[]? | {machine: ($names[0][.metric.instance] // .metric.instance), values}]}' \
+          > "$OUT/cpu.json" 2>/dev/null || true
       rm -f "${OUT:?}/cpu.raw.json" "${OUT:?}/cpu.names.json"
     fi
     {
@@ -107,7 +121,9 @@ for APP in $(fly apps list --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-ha
   if [ -n "$alive" ]; then
     for p in $(pgrep -f "run.sh [BCD] $NAME\$"); do act kill "$p"; done
   fi
-  if [ "${DRY_RUN:-}" = 1 ]; then
+  if [ -n "$missing" ]; then
+    echo "$NAME: couldn't copy$missing; app kept (destroy by hand once saved)"
+  elif [ "${DRY_RUN:-}" = 1 ]; then
     echo "  (dry run) would destroy $APP"
   else
     fly apps destroy "$APP" -y >/dev/null 2>&1 && echo "$NAME: app destroyed"

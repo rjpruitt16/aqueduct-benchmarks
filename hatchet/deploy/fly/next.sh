@@ -38,7 +38,13 @@ pids="" names="" failed=0
 one() {
   config=$1 name=$2
   shift 2
-  [ -f "results/$name/DONE" ] && return
+  # Skip only runs whose driver exited 0; a failed run's DONE holds its status.
+  [ "$(cat "results/$name/DONE" 2>/dev/null)" = 0 ] && return
+  # Another batch may be running this name right now; leave its app alone.
+  if pgrep -f "run.sh [BCD] $name\$" >/dev/null 2>&1; then
+    echo "$name: run.sh already running for it; skipped"
+    return
+  fi
   # A failed earlier try kept its app (its logs are in results/<name>);
   # remove it so this try can create the app again.
   fly apps destroy "aqb-hatchet-$name" -y >/dev/null 2>&1 || true
