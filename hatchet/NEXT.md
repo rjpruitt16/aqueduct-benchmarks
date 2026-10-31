@@ -51,6 +51,22 @@ Without Patch 2, C can't use the new capacity, so this runs after Patch 2. Two r
 
 **Status: built and running** (`OUTAGE_AT`, `OUTAGE_FOR` in `run.sh`, `next.sh outage`). Postgres is stopped ten minutes into the sustained overload, for 5 minutes and for 15, once each for B, D and C. It answers how long an outage each setup rides out with nothing lost: Aquifer holds what it has accepted (up to its backlog budget and disk), while Hatchet's API is down for everyone else's callers.
 
+**Results, and a rerun with a bigger backlog budget (2026-10-30).** In the first outage runs (`nx-out5-c`, `nx-out15-c`), C did worse than D after the outage: small tenants' recovery p99 was 107 s against D's 3.8 s. The cause was the backlog budget the Hatchet fork advertises, `X-Aqueduct-Max-Backlog`, sized as 60 seconds of its rate (1,200 jobs at 20 rps). The outage filled it at once, Aquifer refused every tenant with `upstream_queue`, and the driver's own backoff stretched each refusal to about 100 s. The rerun used `AQUEDUCT_BACKLOG_SECONDS=600` and Aquifer with aquifer#135 (a shrinking budget no longer locks small tenants out); the run can't separate the two changes.
+
+| Run | Outage | Small tenants' recovery p99 | Small tenants' attempts per document | Failed |
+|---|---|---|---|---|
+| `nx-out5-c` (60 s budget) | 5 min | 111 s | 1.38 | 23 |
+| `nx-bl-out5-c-1` (600 s) | 5 min | 5.7 s | 1.00 | 0 |
+| `nx-bl-out5-c-2` (600 s) | 5 min | 3.4 s | 1.00 | 0 |
+| `nx-out5-d` (Envoy) | 5 min | 3.9 s | 1.36 | 1 |
+| `nx-out15-c` (60 s) | 15 min | 403 s | 2.04 | 1 |
+| `nx-bl-out15-c` (600 s) | 15 min | 385 s | 1.20 | 20 |
+| `nx-out15-d-2` (Envoy) | 15 min | 395 s | 1.90 | 0 |
+
+With the 600 s budget and a 5-minute outage, small tenants and accounting were never refused; every refusal went to law-firm, the tenant flooding the system. A 15-minute outage is longer than the 600 s budget, so Aquifer filled to its hard ceiling (15,000, 1.25x the budget) and refused everyone, as the sizing rule predicts; small tenants then recovered about as fast as under Envoy, with far fewer attempts. The no-outage baseline with the bigger budget (`nx-bl-c-1`) matches the earlier C baselines. A second baseline (`nx-bl-c-2`) failed to launch (Fly 408) and wasn't rerun.
+
+Not explained yet: C's outage runs had Hatchet runs end `FAILED` (23 in `nx-out5-c`, 20 in `nx-bl-out15-c`, 0 in the 5-minute reruns), against 0-1 for D; and one duplicate completion in `nx-bl-out5-c-1`, while D's `nx-out15-d-2` had 13. Only `summary.json` and `run.txt` are committed for these runs.
+
 ## 3c. A smaller database
 
 **Status: built and running** (`PG_SIZE` in `run.sh`, `next.sh smalldb`). C twice and B once with Postgres on `performance-1x`, half the CPU, against the earlier runs on `performance-2x`. It answers the cost question directly: can Hatchet behind Aquifer do the same work on a smaller database?
