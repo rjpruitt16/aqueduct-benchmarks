@@ -92,7 +92,7 @@ Three runs of C, 2026-10-26, with the fork's pacing on (`hatchet-aquifer-api:v0.
 | Postgres rows read/s, sustained (thousands) | 51 | 52 | 53 | 232 | 57–66 |
 | Largest `v1_concurrency_slot` backlog (rows) | 104 | 1,175 | 76 | 23,811 | 117–426 |
 
-- **Hatchet's signal does the tuning by hand did.** Allowed 100% of the rate, Aquifer slowed itself to what Hatchet could take, and every run matched or beat the best hand-tuned 80% runs: Hatchet's queue stayed at or near the target, Postgres read about a fifth of what it did without pacing, and small tenants' p99 stayed under 5 s.
+- **Hatchet's signal does the tuning by hand did.** Allowed 100% of the rate, Aquifer slowed itself to what Hatchet could take, and every run came close to the best hand-tuned 80% runs without the tuning: Hatchet's queue stayed at or near the target, Postgres read about a fifth of what it did without pacing, and small tenants' p99 stayed under 5 s. They didn't beat them everywhere: Pace-2's law-firm p99 (38.2 min against 37.4), accounting p99 (4.3 s against 2.9) and largest backlog (1,175 rows against 117–426) were worse.
 - **All three runs agree**, unlike C80 and C90, where one run in three stalled or let the backlog grow. Three runs are not proof that pacing prevents stalls, but none happened.
 - Nobody had to pick a number. The limit came from Hatchet's own queue, so it should follow Hatchet if its database grows; that is the resize experiment in [NEXT.md](NEXT.md).
 

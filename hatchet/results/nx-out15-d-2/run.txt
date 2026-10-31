@@ -1,0 +1,15 @@
+config=D
+started=2026-10-31T00:46:37Z
+hatchet=v0.110.8
+harness_image=registry.fly.io/aqb-envoy-images:hatchet-bl-55359ab
+region=iad
+workers=3
+rate=20
+tenant_max_runs=50
+engine_db_conns=100 trigger_slots=20 buffer_size=50 buffer_flush=25ms
+drain_max=60m
+pg_size=performance-2x
+max_attempts=1000000
+aquifer_max_retries=-1
+envoy_tenant_rps=15 envoy_global_rps=20
+outage_at=1800 outage_for=900

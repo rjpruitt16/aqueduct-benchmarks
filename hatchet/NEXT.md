@@ -32,7 +32,7 @@ The configuration most teams run today. Envoy in front of Hatchet's API, tuned t
 
 Measures, beyond the pilot's: requests per completed document, refused requests per second, Hatchet API CPU, and per-tenant share. Three runs at the calibrated rate, against three C runs at 80%. About $5.
 
-**Postgres CPU, and what it does and doesn't show.** Every run now records each machine's CPU from Fly's metrics (`cpu.json`), and the pilot runs were backfilled the same way (`ana/backfill-cpu.sh`). In the pilot, Postgres ran at 1.3–1.9 of its 2 cores with or without Aquifer, and did about the same useful work per CPU-second: 8.6–11.6 documents per Postgres CPU-second for B, 8.7–11.2 for C. Hatchet on its own never refuses a trigger, so no caller retries and there is no retry storm for Aquifer to remove. D, where Envoy refuses and callers retry, is where wasted CPU would show.
+**Postgres CPU, and what it does and doesn't show.** Every run now records each machine's CPU from Fly's metrics (`cpu.json`), and the pilot runs were backfilled the same way (`ana/backfill-cpu.sh`). In the pilot, Postgres ran at 1.3–1.95 of its 2 cores with or without Aquifer, and did about the same useful work per CPU-second: 8.6–11.6 documents per Postgres CPU-second for B, 8.7–11.2 for C. Hatchet on its own never refuses a trigger, so no caller retries and there is no retry storm for Aquifer to remove. D, where Envoy refuses and callers retry, is where wasted CPU would show.
 
 ## 3. Postgres resize mid-run
 
@@ -50,6 +50,22 @@ Without Patch 2, C can't use the new capacity, so this runs after Patch 2. Two r
 ## 3b. Postgres outage
 
 **Status: built and running** (`OUTAGE_AT`, `OUTAGE_FOR` in `run.sh`, `next.sh outage`). Postgres is stopped ten minutes into the sustained overload, for 5 minutes and for 15, once each for B, D and C. It answers how long an outage each setup rides out with nothing lost: Aquifer holds what it has accepted (up to its backlog budget and disk), while Hatchet's API is down for everyone else's callers.
+
+**Results, and a rerun with a bigger backlog budget (2026-10-30).** In the first outage runs (`nx-out5-c`, `nx-out15-c`), C did worse than D after the outage: small tenants' recovery p99 was up to 111 s against D's 3.9 s (the worst of the five small tenants, as in the table). The cause was the backlog budget the Hatchet fork advertises, `X-Aqueduct-Max-Backlog`, sized as 60 seconds of its rate (1,200 jobs at 20 rps). The outage filled it at once, Aquifer refused every tenant with `upstream_queue`, and the driver's own backoff stretched each refusal to about 100 s. The rerun used `AQUEDUCT_BACKLOG_SECONDS=600` and Aquifer with aquifer#135 (a shrinking budget no longer locks small tenants out); the run can't separate the two changes.
+
+| Run | Outage | Small tenants' recovery p99 | Small tenants' attempts per document | Failed |
+|---|---|---|---|---|
+| `nx-out5-c` (60 s budget) | 5 min | 111 s | 1.38 | 23 |
+| `nx-bl-out5-c-1` (600 s) | 5 min | 5.7 s | 1.00 | 0 |
+| `nx-bl-out5-c-2` (600 s) | 5 min | 3.4 s | 1.00 | 0 |
+| `nx-out5-d` (Envoy) | 5 min | 3.9 s | 1.36 | 1 |
+| `nx-out15-c` (60 s) | 15 min | 403 s | 2.04 | 1 |
+| `nx-bl-out15-c` (600 s) | 15 min | 385 s | 1.20 | 20 |
+| `nx-out15-d-2` (Envoy) | 15 min | 395 s | 1.90 | 0 |
+
+With the 600 s budget and a 5-minute outage, small tenants and accounting were never refused; every refusal went to law-firm, the tenant flooding the system. A 15-minute outage is longer than the 600 s budget, so Aquifer filled to its hard ceiling (15,000, 1.25x the budget) and refused everyone, as the sizing rule predicts; small tenants then recovered about as fast as under Envoy, with far fewer attempts. The no-outage baseline with the bigger budget (`nx-bl-c-1`) matches the earlier C baselines. A second baseline (`nx-bl-c-2`) failed to launch (Fly 408) and wasn't rerun.
+
+Not explained yet: C's outage runs had Hatchet runs end `FAILED` (23 in `nx-out5-c`, 20 in `nx-bl-out15-c`, 0 in the 5-minute reruns), against 0-1 for D; and one duplicate completion in `nx-bl-out5-c-1`, while D's `nx-out15-d-2` had 13. D's are probably Envoy's route retrying a trigger `POST` after a connection reset (`retry_on: reset`), which can create a second Hatchet run for the same document; the config is left as run, so D's results stay comparable. C's single duplicate has no explanation yet: the trigger Aquifer forwards carries no idempotency key of its own either. Only `summary.json` and `run.txt` are committed for these runs.
 
 ## 3c. A smaller database
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -65,6 +66,16 @@ func (a *aquiferAPI) submit(ctx context.Context, d pipeline.Document) (string, e
 		}
 		return out.JobID, nil
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+		// One line per refusal, so a run shows why and against which budget.
+		var why struct {
+			Reason  string `json:"limit_reason"`
+			Limit   int64  `json:"limit"`
+			Current int64  `json:"current"`
+		}
+		_ = json.Unmarshal(raw, &why)
+		log.Printf("aquifer refused tenant=%s status=%d reason=%s limit=%d current=%d queue_backlog=%s retry_after=%s",
+			d.Tenant, resp.StatusCode, why.Reason, why.Limit, why.Current,
+			resp.Header.Get("X-Aqueduct-Queue-Backlog"), resp.Header.Get("Retry-After"))
 		return "", &errRetryable{status: resp.StatusCode, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 	default:
 		return "", fmt.Errorf("aquifer: HTTP %d: %s", resp.StatusCode, truncate(raw))

@@ -16,8 +16,12 @@
 #             twice the calibrated rate, and D with Envoy's limits sized for the bigger database
 #   outage    B, D and C: Postgres stopped for 5 and for 15 minutes, ten minutes into the sustained overload
 #   smalldb   C twice and B once with Postgres on performance-1x
+#   backlog   C with a 5-minute outage, Hatchet advertising 10 minutes of backlog
+#             instead of 60 s, on an Aquifer whose fair admission survives a
+#             shrinking budget (aquifer#135)
+#   backlog2  the rest of the C runs that way, and the 15-minute D outage again
 set -u
-PART=${1:?usage: next.sh <smoke|baseline|resize|resize2|outage|smalldb>}
+PART=${1:?usage: next.sh <smoke|baseline|resize|resize2|outage|smalldb|backlog|backlog2>}
 HERE=$(cd "$(dirname "$0")" && pwd)
 # The harness image these runs use, kept in the repo so the results say which
 # driver produced them; HARNESS_IMAGE in the environment is the fallback.
@@ -34,7 +38,13 @@ pids="" names="" failed=0
 one() {
   config=$1 name=$2
   shift 2
-  [ -f "results/$name/DONE" ] && return
+  # Skip only runs whose driver exited 0; a failed run's DONE holds its status.
+  [ "$(cat "results/$name/DONE" 2>/dev/null)" = 0 ] && return
+  # Another batch may be running this name right now; leave its app alone.
+  if pgrep -f "run.sh [BCD] $name\$" >/dev/null 2>&1; then
+    echo "$name: run.sh already running for it; skipped"
+    return
+  fi
   # A failed earlier try kept its app (its logs are in results/<name>);
   # remove it so this try can create the app again.
   fly apps destroy "aqb-hatchet-$name" -y >/dev/null 2>&1 || true
@@ -87,6 +97,15 @@ case "$PART" in
   smalldb)
     for r in 1 2; do one C "nx-small-c-$r" PG_SIZE=performance-1x; done
     one B nx-small-b-1 PG_SIZE=performance-1x
+    ;;
+  backlog)
+    one C nx-bl-out5-c-1 OUTAGE_AT=$AT OUTAGE_FOR=300 PACING_BACKLOG_SECONDS=600
+    ;;
+  backlog2)
+    one C nx-bl-out5-c-2 OUTAGE_AT=$AT OUTAGE_FOR=300 PACING_BACKLOG_SECONDS=600
+    one C nx-bl-out15-c OUTAGE_AT=$AT OUTAGE_FOR=900 PACING_BACKLOG_SECONDS=600
+    for r in 1 2; do one C "nx-bl-c-$r" PACING_BACKLOG_SECONDS=600; done
+    one D nx-out15-d-2 OUTAGE_AT=$AT OUTAGE_FOR=900
     ;;
   *) echo "unknown part $PART" >&2; exit 2 ;;
 esac

@@ -1,0 +1,522 @@
+{
+  "started": "2026-10-31T00:46:19.863079907Z",
+  "phases": [
+    {
+      "name": "steady",
+      "start": "2026-10-31T00:46:19.863079907Z",
+      "end": "2026-10-31T00:56:19.863079907Z"
+    },
+    {
+      "name": "burst",
+      "start": "2026-10-31T00:56:19.863079907Z",
+      "end": "2026-10-31T01:06:19.863079907Z"
+    },
+    {
+      "name": "sustained",
+      "start": "2026-10-31T01:06:19.863079907Z",
+      "end": "2026-10-31T01:26:19.863079907Z"
+    },
+    {
+      "name": "recovery",
+      "start": "2026-10-31T01:26:19.863079907Z",
+      "end": "2026-10-31T01:56:19.863079907Z"
+    }
+  ],
+  "tenants": {
+    "accounting": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 1800,
+        "recovery": 5400,
+        "steady": 1799,
+        "sustained": 3600
+      },
+      "outcomes": {
+        "completed": 12593,
+        "failed": 2,
+        "outstanding": 5
+      },
+      "p50_ms_by_phase": {
+        "after": 1860.9,
+        "burst": 1894.8,
+        "overload": 2129.2,
+        "recovery": 22436.6,
+        "steady": 746.7,
+        "sustained": 617515.6
+      },
+      "p99_ms_by_phase": {
+        "after": 1860.9,
+        "burst": 3156.9,
+        "overload": 1107402.2,
+        "recovery": 612507.2,
+        "steady": 2104,
+        "sustained": 1121179.5
+      },
+      "slowdown_p99": 526.3318441064639,
+      "longest_gap_s": 599.085946074,
+      "to_run_id_p99_ms": 1094659.4,
+      "to_run_id_p50_ms": 78,
+      "avg_attempts": 1.0770940849543469,
+      "accept_p50_ms_by_phase": {
+        "after": 3.5,
+        "burst": 1.9,
+        "overload": 1.8,
+        "recovery": 1.8,
+        "steady": 2,
+        "sustained": 1.8
+      },
+      "accept_p99_ms_by_phase": {
+        "after": 3.5,
+        "burst": 6,
+        "overload": 335199.6,
+        "recovery": 348270.7,
+        "steady": 5.2,
+        "sustained": 339492.6
+      },
+      "retries": 971,
+      "retried_documents": 423,
+      "backoff_seconds": 16692.725508425,
+      "backoff_p50_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 0,
+        "steady": 0,
+        "sustained": 0
+      },
+      "backoff_p99_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 5000.6,
+        "recovery": 15802.5,
+        "steady": 0,
+        "sustained": 17817
+      }
+    },
+    "law-firm": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 32995,
+        "recovery": 9002,
+        "steady": 2999,
+        "sustained": 30003
+      },
+      "outcomes": {
+        "completed": 74969,
+        "failed": 16,
+        "never_started": 2,
+        "outstanding": 13
+      },
+      "p50_ms_by_phase": {
+        "after": 1824645.1,
+        "burst": 754349.4,
+        "overload": 2704083.8,
+        "recovery": 2491420.8,
+        "steady": 749.9,
+        "sustained": 2980609.6
+      },
+      "p99_ms_by_phase": {
+        "after": 1824645.1,
+        "burst": 2841542,
+        "overload": 3151790.7,
+        "recovery": 3146139,
+        "steady": 2143,
+        "sustained": 3155244.8
+      },
+      "slowdown_p99": 1470.737610825945,
+      "longest_gap_s": 599.05566684,
+      "to_run_id_p99_ms": 3148844.2,
+      "to_run_id_p50_ms": 2573143,
+      "avg_attempts": 1.257591315828077,
+      "accept_p50_ms_by_phase": {
+        "after": 1199659,
+        "burst": 3210.5,
+        "overload": 2000367.6,
+        "recovery": 1868053.8,
+        "steady": 1.8,
+        "sustained": 2345997.4
+      },
+      "accept_p99_ms_by_phase": {
+        "after": 1199659,
+        "burst": 2074389.5,
+        "overload": 2526531.4,
+        "recovery": 2520905.2,
+        "steady": 4.9,
+        "sustained": 2530270.4
+      },
+      "retries": 19316,
+      "retried_documents": 14908,
+      "backoff_seconds": 145542.6276180645,
+      "backoff_p50_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 0,
+        "steady": 0,
+        "sustained": 0
+      },
+      "backoff_p99_ms_by_phase": {
+        "after": 0,
+        "burst": 16957.9,
+        "overload": 16600.7,
+        "recovery": 15180.2,
+        "steady": 0,
+        "sustained": 16013.6
+      }
+    },
+    "small-1": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1679,
+        "outstanding": 1
+      },
+      "p50_ms_by_phase": {
+        "after": 2037.5,
+        "burst": 1933.2,
+        "overload": 2186.5,
+        "recovery": 2051,
+        "steady": 872.5,
+        "sustained": 3383.5
+      },
+      "p99_ms_by_phase": {
+        "after": 2037.5,
+        "burst": 3120.1,
+        "overload": 942918,
+        "recovery": 379385,
+        "steady": 1752,
+        "sustained": 955762.3
+      },
+      "slowdown_p99": 538.195205479452,
+      "longest_gap_s": 599.652808362,
+      "to_run_id_p99_ms": 913039,
+      "to_run_id_p50_ms": 78,
+      "avg_attempts": 1.197736748064324,
+      "accept_p50_ms_by_phase": {
+        "after": 3.2,
+        "burst": 3,
+        "overload": 2.6,
+        "recovery": 2.7,
+        "steady": 3,
+        "sustained": 2.5
+      },
+      "accept_p99_ms_by_phase": {
+        "after": 3.2,
+        "burst": 8.9,
+        "overload": 7.2,
+        "recovery": 289504,
+        "steady": 6.8,
+        "sustained": 5.3
+      },
+      "retries": 332,
+      "retried_documents": 59,
+      "backoff_seconds": 8717.263480443,
+      "backoff_p50_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 0,
+        "steady": 0,
+        "sustained": 0
+      },
+      "backoff_p99_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 289486.8,
+        "steady": 0,
+        "sustained": 0
+      }
+    },
+    "small-2": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1679,
+        "failed": 1
+      },
+      "p50_ms_by_phase": {
+        "after": 1861.6,
+        "burst": 1920.1,
+        "overload": 2189.7,
+        "recovery": 2042.5,
+        "steady": 873.7,
+        "sustained": 3387.5
+      },
+      "p99_ms_by_phase": {
+        "after": 1861.6,
+        "burst": 3164.3,
+        "overload": 948302.2,
+        "recovery": 385053.9,
+        "steady": 1751.4,
+        "sustained": 960156.4
+      },
+      "slowdown_p99": 541.4538083818659,
+      "longest_gap_s": 599.652697275,
+      "to_run_id_p99_ms": 917599.8,
+      "to_run_id_p50_ms": 78,
+      "avg_attempts": 1.1922619047619047,
+      "accept_p50_ms_by_phase": {
+        "after": 1.5,
+        "burst": 3.2,
+        "overload": 2.8,
+        "recovery": 2.9,
+        "steady": 3.1,
+        "sustained": 2.7
+      },
+      "accept_p99_ms_by_phase": {
+        "after": 1.5,
+        "burst": 8.8,
+        "overload": 7.6,
+        "recovery": 282831.4,
+        "steady": 6,
+        "sustained": 5.3
+      },
+      "retries": 323,
+      "retried_documents": 54,
+      "backoff_seconds": 8460.481200634,
+      "backoff_p50_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 0,
+        "steady": 0,
+        "sustained": 0
+      },
+      "backoff_p99_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 282810.5,
+        "steady": 0,
+        "sustained": 0
+      }
+    },
+    "small-3": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1679,
+        "outstanding": 1
+      },
+      "p50_ms_by_phase": {
+        "after": 2037.3,
+        "burst": 1941.5,
+        "overload": 2180.2,
+        "recovery": 2043.8,
+        "steady": 873.7,
+        "sustained": 3384.1
+      },
+      "p99_ms_by_phase": {
+        "after": 2037.3,
+        "burst": 3165.2,
+        "overload": 946529.6,
+        "recovery": 383767.2,
+        "steady": 1577.7,
+        "sustained": 963198.5
+      },
+      "slowdown_p99": 599.9427014007732,
+      "longest_gap_s": 599.652821001,
+      "to_run_id_p99_ms": 920794.3,
+      "to_run_id_p50_ms": 77,
+      "avg_attempts": 1.197736748064324,
+      "accept_p50_ms_by_phase": {
+        "after": 2.8,
+        "burst": 3,
+        "overload": 2.7,
+        "recovery": 2.7,
+        "steady": 2.8,
+        "sustained": 2.6
+      },
+      "accept_p99_ms_by_phase": {
+        "after": 2.8,
+        "burst": 12.3,
+        "overload": 7.4,
+        "recovery": 293622,
+        "steady": 6.7,
+        "sustained": 5.1
+      },
+      "retries": 332,
+      "retried_documents": 57,
+      "backoff_seconds": 8589.071617688001,
+      "backoff_p50_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 0,
+        "steady": 0,
+        "sustained": 0
+      },
+      "backoff_p99_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 293602.6,
+        "steady": 0,
+        "sustained": 0
+      }
+    },
+    "small-4": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1679,
+        "failed": 1
+      },
+      "p50_ms_by_phase": {
+        "after": 1860.6,
+        "burst": 1933.7,
+        "overload": 2141.5,
+        "recovery": 2057,
+        "steady": 868.5,
+        "sustained": 3385.2
+      },
+      "p99_ms_by_phase": {
+        "after": 1860.6,
+        "burst": 3224.8,
+        "overload": 948303.1,
+        "recovery": 381955.3,
+        "steady": 1577.7,
+        "sustained": 963691.3
+      },
+      "slowdown_p99": 601.0668061101603,
+      "longest_gap_s": 599.783151309,
+      "to_run_id_p99_ms": 917201.6,
+      "to_run_id_p50_ms": 77.3,
+      "avg_attempts": 1.2047619047619047,
+      "accept_p50_ms_by_phase": {
+        "after": 2.3,
+        "burst": 2.9,
+        "overload": 2.4,
+        "recovery": 2.4,
+        "steady": 2.6,
+        "sustained": 2.3
+      },
+      "accept_p99_ms_by_phase": {
+        "after": 2.3,
+        "burst": 9.8,
+        "overload": 7.3,
+        "recovery": 283283.5,
+        "steady": 5.5,
+        "sustained": 4.8
+      },
+      "retries": 344,
+      "retried_documents": 68,
+      "backoff_seconds": 8542.571788745003,
+      "backoff_p50_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 0,
+        "steady": 0,
+        "sustained": 0
+      },
+      "backoff_p99_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 283266.4,
+        "steady": 0,
+        "sustained": 0
+      }
+    },
+    "small-5": {
+      "offered_by_phase": {
+        "after": 1,
+        "burst": 240,
+        "recovery": 720,
+        "steady": 239,
+        "sustained": 480
+      },
+      "outcomes": {
+        "completed": 1679,
+        "outstanding": 1
+      },
+      "p50_ms_by_phase": {
+        "after": 1860.8,
+        "burst": 1908.2,
+        "overload": 2145.6,
+        "recovery": 2037.1,
+        "steady": 862.8,
+        "sustained": 3385.6
+      },
+      "p99_ms_by_phase": {
+        "after": 1860.8,
+        "burst": 3166,
+        "overload": 946358.1,
+        "recovery": 376753.1,
+        "steady": 1724.3,
+        "sustained": 961564.5
+      },
+      "slowdown_p99": 548.8361074059038,
+      "longest_gap_s": 599.65266214,
+      "to_run_id_p99_ms": 920061.9,
+      "to_run_id_p50_ms": 78.7,
+      "avg_attempts": 1.1953543776057176,
+      "accept_p50_ms_by_phase": {
+        "after": 1.8,
+        "burst": 2.7,
+        "overload": 2.6,
+        "recovery": 2.9,
+        "steady": 3.1,
+        "sustained": 2.6
+      },
+      "accept_p99_ms_by_phase": {
+        "after": 1.8,
+        "burst": 10.8,
+        "overload": 8,
+        "recovery": 289241.2,
+        "steady": 8.2,
+        "sustained": 5.4
+      },
+      "retries": 328,
+      "retried_documents": 58,
+      "backoff_seconds": 8719.627406098998,
+      "backoff_p50_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 0,
+        "steady": 0,
+        "sustained": 0
+      },
+      "backoff_p99_ms_by_phase": {
+        "after": 0,
+        "burst": 0,
+        "overload": 0,
+        "recovery": 289204.5,
+        "steady": 0,
+        "sustained": 0
+      }
+    }
+  },
+  "totals": {
+    "completed": 95957,
+    "failed": 20,
+    "never_started": 2
+  },
+  "duplicate_completions": 0,
+  "outstanding_at_end": 21,
+  "jain_overload": 0.9999999036174088,
+  "drain_seconds": 3630.13289092
+}

@@ -1,0 +1,18 @@
+config=C
+started=2026-10-31T00:46:20Z
+hatchet=v0.110.8
+harness_image=registry.fly.io/aqb-envoy-images:hatchet-bl-55359ab
+api_image=ghcr.io/rjpruitt16/hatchet-aquifer-api:v0.110.8-aqueduct-237971d
+region=iad
+workers=3
+rate=20
+tenant_max_runs=50
+engine_db_conns=100 trigger_slots=20 buffer_size=50 buffer_flush=25ms
+drain_max=60m
+aquifer_rps=20 aquifer_concurrency=32
+aquifer_flush_ms=default
+pacing=on target_depth=1000 max_rps=20 backlog_seconds=600
+pg_size=performance-2x
+max_attempts=1000000
+aquifer_max_retries=-1
+outage_at=1800 outage_for=900
