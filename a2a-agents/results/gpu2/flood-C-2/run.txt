@@ -1,0 +1,14 @@
+config=C
+mode=aquifer
+phases=flood:480:3.2000:big=8/small-1=1/small-2=1
+tenants=big:3,small-1:1,small-2:1
+llm=https://mxg9ud0g0vcvbe-8000.proxy.runpod.net
+llm_model=Qwen/Qwen2.5-7B-Instruct
+llm_max=8
+db_pool=8
+slots=4
+ci=103 runners, 20s-60s, 5% flaky, 431/min burst 72, poll 10s
+aquifer=5981996
+image=a2a-2bc95ad
+started=2026-10-31T03:21:44Z
+ended=2026-10-31T03:33:46Z

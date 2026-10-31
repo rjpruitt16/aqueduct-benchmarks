@@ -147,8 +147,12 @@ func run(ctx context.Context, coord, sandbox, ci string, e *entry) {
 	var res *work.Result
 	for ev, err := range c.SendStreamingMessage(ctx, &a2a.SendMessageRequest{Message: msg, Tenant: e.Tenant}) {
 		if err != nil {
-			e.Outcome, e.Error = "error", err.Error()
 			e.EndMs = time.Since(e.Submitted).Milliseconds()
+			// The drain ended: the workflow was still running, not failed.
+			if ctx.Err() != nil {
+				return
+			}
+			e.Outcome, e.Error = "error", err.Error()
 			return
 		}
 		if e.AckMs == 0 {

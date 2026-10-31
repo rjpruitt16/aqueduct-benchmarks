@@ -1,0 +1,39 @@
+# llm
+vllm:num_requests_running 0
+vllm:num_requests_waiting 0
+vllm:generation_tokens_total 30500
+vllm:prompt_tokens_total 33131
+mockllm_max_seqs 8
+mockllm_tokens_per_s 40
+mockllm_requests_total{step="code"} 146
+mockllm_requests_total{step="research"} 106
+
+# dbtool
+dbtool_pool_max 8
+dbtool_pool_in_use 0
+dbtool_pool_waiting 0
+dbtool_attempts_stored_total 146
+dbtool_attempts_duplicate_total 0
+dbtool_delay_ms 0
+dbtool_requests_total{route="get_issue",status="200"} 146
+dbtool_requests_total{route="post_attempt",status="200"} 146
+
+# sandbox
+sandbox_slots 4
+sandbox_slots_busy 0
+sandbox_executions_total 146
+sandbox_refused_total 0
+sandbox_repeated_executions_total 0
+
+# mockci
+ci_runners 62
+ci_queued 0
+ci_running 0
+ci_runs_total 111
+ci_runs_finished_total 111
+ci_duplicate_starts_total 0
+ci_polls_total 512
+ci_refused_total 0
+ci_flaky_total 5
+ci_queue_wait_seconds_sum 0.000
+
