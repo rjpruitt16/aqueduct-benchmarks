@@ -31,6 +31,17 @@ case "$FLY_API_TOKEN" in FlyV1*) auth="$FLY_API_TOKEN" ;; *) auth="Bearer $FLY_A
 now=$(date +%s)
 
 act() { if [ "${DRY_RUN:-}" = 1 ]; then echo "  (dry run) $*"; else "$@"; fi; }
+# Stop an app's started machines except the one named, keeping their volumes,
+# so an app kept for its results stops costing compute.
+stop_others() {
+  for id in $(echo "$machines" | jq -r --arg keep "$1" '.[] | select(.state == "started" and .id != $keep) | .id'); do
+    if [ "${DRY_RUN:-}" = 1 ]; then
+      echo "  (dry run) fly machine stop $id -a $APP"
+    else
+      fly machine stop "$id" -a "$APP" >/dev/null 2>&1 || true
+    fi
+  done
+}
 
 for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name' | grep '^aqb-hatchet-'); do
   NAME=${APP#aqb-hatchet-}
@@ -67,6 +78,7 @@ for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name
   fi
   if [ -z "$done_status" ] && [ "$drv_state" = stopped ]; then
     echo "$NAME: driver stopped, results unread; kept for inspection (destroy by hand)"
+    stop_others ""
     continue
   fi
   if [ -z "$done_status" ] && [ "$age" -lt "$GRACE" ]; then
@@ -77,7 +89,11 @@ for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name
   mkdir -p "${OUT:?}"
   missing=""
   if [ -n "$done_status" ] && [ "${DRY_RUN:-}" != 1 ]; then
+    # DONE goes last, and only once everything else copied: next.sh skips a
+    # run whose DONE says 0.
+    rm -f "${OUT:?}/DONE"
     for f in summary.json intervals.jsonl postgres.jsonl statements.json driver.log DONE; do
+      [ "$f" = DONE ] && [ -n "$missing" ] && break
       got=""
       for try in 1 2 3; do
         timeout 120 fly ssh sftp get -a "$APP" --machine "$drv" "/out/$f" "${OUT:?}/${f:?}" >/dev/null 2>&1 && { got=1; break; }
@@ -95,7 +111,9 @@ for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name
         | grep -E '^aquifer_(admission_rejected_total|dispatch_attempts_total)' | sed 's/target="[^"]*"/target="hatchet-api"/' > "$OUT/aquifer_metrics.txt" || true
     fi
     echo "$machines" | jq '[.[] | {id, name, region, image: .config.image, guest: .config.guest}]' > "$OUT/machines.json"
-    # CPU over the schedule and drain, as run.sh records it.
+    # CPU over the schedule and drain, as run.sh records it. A failed query
+    # leaves no cpu.json rather than an earlier one.
+    rm -f "${OUT:?}/cpu.json"
     if [ -s "$OUT/summary.json" ]; then
       start=$(date -d "$(jq -r '.started' "$OUT/summary.json" | sed 's/\.[0-9]*Z$/Z/')" +%s)
       # The last interval sample covers the drain; drain_seconds can't be
@@ -126,7 +144,8 @@ for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name
     for p in $(pgrep -f "run.sh [BCDE] $NAME\$"); do act kill "$p"; done
   fi
   if [ -n "$missing" ]; then
-    echo "$NAME: couldn't copy$missing; app kept (destroy by hand once saved)"
+    echo "$NAME: couldn't copy$missing; app kept, driver left running for the next try"
+    stop_others "$drv"
   elif [ "${DRY_RUN:-}" = 1 ]; then
     echo "  (dry run) would destroy $APP"
   else
