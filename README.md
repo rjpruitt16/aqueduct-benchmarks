@@ -9,6 +9,7 @@ Each benchmark asks whether Aquifer's admission control, pacing and per-tenant f
 | Target | Status |
 |---|---|
 | [Envoy](envoy/) | Done: five load regimes on Fly, from steady load to retries stacked across a chain of services and capacity that arrives late. [Results](envoy/RESULTS.md) |
+| [vLLM](vllm/) | Done, two experiments on one RunPod GPU (August 2026): through Aquifer, vLLM's own queue stayed near empty, and generation wasted on callers that timed out and retried fell from 96.5% to 22%. [Results](vllm/README.md) |
 | [Hatchet](hatchet/) | Harness and Fly run script built. Two reported Hatchet issues confirmed on v0.110.8 ([reproductions](hatchet/repro/)). No measured runs published yet |
 
 ## What the Envoy series found
