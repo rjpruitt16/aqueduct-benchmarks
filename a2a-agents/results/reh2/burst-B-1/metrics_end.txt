@@ -1,0 +1,61 @@
+# llm
+vllm:num_requests_running 0
+vllm:num_requests_waiting 0
+vllm:generation_tokens_total 35350
+vllm:prompt_tokens_total 38389
+mockllm_max_seqs 8
+mockllm_tokens_per_s 40
+mockllm_requests_total{step="research"} 123
+mockllm_requests_total{step="code"} 169
+
+# dbtool
+dbtool_pool_max 8
+dbtool_pool_in_use 0
+dbtool_pool_waiting 0
+dbtool_attempts_stored_total 169
+dbtool_attempts_duplicate_total 0
+dbtool_delay_ms 0
+dbtool_requests_total{route="get_issue",status="200"} 169
+dbtool_requests_total{route="post_attempt",status="200"} 169
+
+# sandbox
+sandbox_slots 4
+sandbox_slots_busy 0
+sandbox_executions_total 169
+sandbox_refused_total 0
+sandbox_repeated_executions_total 0
+
+# mockci
+ci_runners 62
+ci_queued 0
+ci_running 0
+ci_runs_total 128
+ci_runs_finished_total 128
+ci_duplicate_starts_total 0
+ci_polls_total 594
+ci_refused_total 0
+ci_flaky_total 5
+ci_queue_wait_seconds_sum 0.000
+
+# dispatcher
+dispatcher_inflight{resource="llm"} 0
+dispatcher_taken_total{resource="llm"} 292
+dispatcher_requests_total{resource="llm"} 292
+dispatcher_requeued_total{resource="llm"} 0
+dispatcher_results_total{resource="llm"} 292
+dispatcher_inflight{resource="db"} 0
+dispatcher_taken_total{resource="db"} 338
+dispatcher_requests_total{resource="db"} 338
+dispatcher_requeued_total{resource="db"} 0
+dispatcher_results_total{resource="db"} 338
+dispatcher_inflight{resource="sandbox"} 0
+dispatcher_taken_total{resource="sandbox"} 169
+dispatcher_requests_total{resource="sandbox"} 169
+dispatcher_requeued_total{resource="sandbox"} 0
+dispatcher_results_total{resource="sandbox"} 169
+dispatcher_inflight{resource="ci"} 0
+dispatcher_taken_total{resource="ci"} 722
+dispatcher_requests_total{resource="ci"} 722
+dispatcher_requeued_total{resource="ci"} 0
+dispatcher_results_total{resource="ci"} 722
+

@@ -1,0 +1,756 @@
+# llm
+# HELP python_gc_objects_collected_total Objects collected during gc
+# TYPE python_gc_objects_collected_total counter
+python_gc_objects_collected_total{generation="0"} 17346.0
+python_gc_objects_collected_total{generation="1"} 2671.0
+python_gc_objects_collected_total{generation="2"} 1340.0
+# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
+# TYPE python_gc_objects_uncollectable_total counter
+python_gc_objects_uncollectable_total{generation="0"} 0.0
+python_gc_objects_uncollectable_total{generation="1"} 0.0
+python_gc_objects_uncollectable_total{generation="2"} 0.0
+# HELP python_gc_collections_total Number of times this generation was collected
+# TYPE python_gc_collections_total counter
+python_gc_collections_total{generation="0"} 3136.0
+python_gc_collections_total{generation="1"} 285.0
+python_gc_collections_total{generation="2"} 17.0
+# HELP python_info Python platform information
+# TYPE python_info gauge
+python_info{implementation="CPython",major="3",minor="12",patchlevel="3",version="3.12.3"} 1.0
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 2.290249728e+010
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 1.499705344e+09
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.79340562439e+09
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 534.3199999999999
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 44.0
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 65535.0
+# HELP vllm:estimated_flops_per_gpu_total Estimated number of floating point operations per GPU (for Model Flops Utilization calculations).
+# TYPE vllm:estimated_flops_per_gpu_total counter
+vllm:estimated_flops_per_gpu_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:estimated_flops_per_gpu_created Estimated number of floating point operations per GPU (for Model Flops Utilization calculations).
+# TYPE vllm:estimated_flops_per_gpu_created gauge
+vllm:estimated_flops_per_gpu_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305513804e+09
+# HELP vllm:estimated_read_bytes_per_gpu_total Estimated number of bytes read from memory per GPU (for Model Flops Utilization calculations).
+# TYPE vllm:estimated_read_bytes_per_gpu_total counter
+vllm:estimated_read_bytes_per_gpu_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:estimated_read_bytes_per_gpu_created Estimated number of bytes read from memory per GPU (for Model Flops Utilization calculations).
+# TYPE vllm:estimated_read_bytes_per_gpu_created gauge
+vllm:estimated_read_bytes_per_gpu_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305514116e+09
+# HELP vllm:estimated_write_bytes_per_gpu_total Estimated number of bytes written to memory per GPU (for Model Flops Utilization calculations).
+# TYPE vllm:estimated_write_bytes_per_gpu_total counter
+vllm:estimated_write_bytes_per_gpu_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:estimated_write_bytes_per_gpu_created Estimated number of bytes written to memory per GPU (for Model Flops Utilization calculations).
+# TYPE vllm:estimated_write_bytes_per_gpu_created gauge
+vllm:estimated_write_bytes_per_gpu_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305514333e+09
+# HELP vllm:num_requests_running Number of requests in model execution batches.
+# TYPE vllm:num_requests_running gauge
+vllm:num_requests_running{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:num_requests_waiting Number of requests waiting to be processed.
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:num_requests_waiting_by_reason Number of waiting requests by reason. Reason labels: 'capacity' = waiting for scheduling capacity; 'deferred' = deferred by transient constraints (LoRA budget, KV transfer, blocked status). Sum of all reasons equals vllm:num_requests_waiting.
+# TYPE vllm:num_requests_waiting_by_reason gauge
+vllm:num_requests_waiting_by_reason{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",reason="capacity"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",reason="deferred"} 0.0
+# HELP vllm:engine_sleep_state Engine sleep state; awake = 0 means engine is sleeping; awake = 1 means engine is awake; weights_offloaded = 1 means sleep level 1; discard_all = 1 means sleep level 2.
+# TYPE vllm:engine_sleep_state gauge
+vllm:engine_sleep_state{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",sleep_state="awake"} 1.0
+vllm:engine_sleep_state{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",sleep_state="weights_offloaded"} 0.0
+vllm:engine_sleep_state{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",sleep_state="discard_all"} 0.0
+# HELP vllm:kv_cache_usage_perc KV-cache usage. 1 means 100 percent usage.
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:prefix_cache_queries_total Prefix cache queries, in terms of number of queried tokens.
+# TYPE vllm:prefix_cache_queries_total counter
+vllm:prefix_cache_queries_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 4.412491e+06
+# HELP vllm:prefix_cache_queries_created Prefix cache queries, in terms of number of queried tokens.
+# TYPE vllm:prefix_cache_queries_created gauge
+vllm:prefix_cache_queries_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305516438e+09
+# HELP vllm:prefix_cache_hits_total Prefix cache hits, in terms of number of cached tokens.
+# TYPE vllm:prefix_cache_hits_total counter
+vllm:prefix_cache_hits_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 4.1964e+06
+# HELP vllm:prefix_cache_hits_created Prefix cache hits, in terms of number of cached tokens.
+# TYPE vllm:prefix_cache_hits_created gauge
+vllm:prefix_cache_hits_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305516617e+09
+# HELP vllm:external_prefix_cache_queries_total External prefix cache queries from KV connector cross-instance cache sharing, in terms of number of queried tokens.
+# TYPE vllm:external_prefix_cache_queries_total counter
+vllm:external_prefix_cache_queries_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:external_prefix_cache_queries_created External prefix cache queries from KV connector cross-instance cache sharing, in terms of number of queried tokens.
+# TYPE vllm:external_prefix_cache_queries_created gauge
+vllm:external_prefix_cache_queries_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.793405730551679e+09
+# HELP vllm:external_prefix_cache_hits_total External prefix cache hits from KV connector cross-instance cache sharing, in terms of number of cached tokens.
+# TYPE vllm:external_prefix_cache_hits_total counter
+vllm:external_prefix_cache_hits_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:external_prefix_cache_hits_created External prefix cache hits from KV connector cross-instance cache sharing, in terms of number of cached tokens.
+# TYPE vllm:external_prefix_cache_hits_created gauge
+vllm:external_prefix_cache_hits_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305516965e+09
+# HELP vllm:mm_cache_queries_total Multi-modal cache queries, in terms of number of queried items.
+# TYPE vllm:mm_cache_queries_total counter
+vllm:mm_cache_queries_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:mm_cache_queries_created Multi-modal cache queries, in terms of number of queried items.
+# TYPE vllm:mm_cache_queries_created gauge
+vllm:mm_cache_queries_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305517118e+09
+# HELP vllm:mm_cache_hits_total Multi-modal cache hits, in terms of number of cached items.
+# TYPE vllm:mm_cache_hits_total counter
+vllm:mm_cache_hits_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:mm_cache_hits_created Multi-modal cache hits, in terms of number of cached items.
+# TYPE vllm:mm_cache_hits_created gauge
+vllm:mm_cache_hits_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305517268e+09
+# HELP vllm:num_preemptions_total Cumulative number of preemption from the engine.
+# TYPE vllm:num_preemptions_total counter
+vllm:num_preemptions_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:num_preemptions_created Cumulative number of preemption from the engine.
+# TYPE vllm:num_preemptions_created gauge
+vllm:num_preemptions_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305519316e+09
+# HELP vllm:prompt_tokens_total Number of prefill tokens processed.
+# TYPE vllm:prompt_tokens_total counter
+vllm:prompt_tokens_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 4.412491e+06
+# HELP vllm:prompt_tokens_created Number of prefill tokens processed.
+# TYPE vllm:prompt_tokens_created gauge
+vllm:prompt_tokens_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305519533e+09
+# HELP vllm:prompt_tokens_by_source_total Number of prompt tokens by source.
+# TYPE vllm:prompt_tokens_by_source_total counter
+vllm:prompt_tokens_by_source_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",source="local_compute"} 216091.0
+vllm:prompt_tokens_by_source_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",source="local_cache_hit"} 4.1964e+06
+vllm:prompt_tokens_by_source_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",source="external_kv_transfer"} 0.0
+# HELP vllm:prompt_tokens_by_source_created Number of prompt tokens by source.
+# TYPE vllm:prompt_tokens_by_source_created gauge
+vllm:prompt_tokens_by_source_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",source="local_compute"} 1.7934057305519753e+09
+vllm:prompt_tokens_by_source_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",source="local_cache_hit"} 1.7934057305519834e+09
+vllm:prompt_tokens_by_source_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct",source="external_kv_transfer"} 1.7934057305519907e+09
+# HELP vllm:prompt_tokens_cached_total Number of cached prompt tokens (local + external).
+# TYPE vllm:prompt_tokens_cached_total counter
+vllm:prompt_tokens_cached_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 4.1964e+06
+# HELP vllm:prompt_tokens_cached_created Number of cached prompt tokens (local + external).
+# TYPE vllm:prompt_tokens_cached_created gauge
+vllm:prompt_tokens_cached_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.793405730552007e+09
+# HELP vllm:generation_tokens_total Number of generation tokens processed.
+# TYPE vllm:generation_tokens_total counter
+vllm:generation_tokens_total{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.691571e+06
+# HELP vllm:generation_tokens_created Number of generation tokens processed.
+# TYPE vllm:generation_tokens_created gauge
+vllm:generation_tokens_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305520234e+09
+# HELP vllm:request_success_total Count of successfully processed requests.
+# TYPE vllm:request_success_total counter
+vllm:request_success_total{engine="0",finished_reason="stop",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_success_total{engine="0",finished_reason="length",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_success_total{engine="0",finished_reason="abort",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_success_total{engine="0",finished_reason="error",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_success_total{engine="0",finished_reason="repetition",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:request_success_created Count of successfully processed requests.
+# TYPE vllm:request_success_created gauge
+vllm:request_success_created{engine="0",finished_reason="stop",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305520508e+09
+vllm:request_success_created{engine="0",finished_reason="length",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305520601e+09
+vllm:request_success_created{engine="0",finished_reason="abort",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.793405730552068e+09
+vllm:request_success_created{engine="0",finished_reason="error",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305520756e+09
+vllm:request_success_created{engine="0",finished_reason="repetition",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305520835e+09
+# HELP vllm:request_prompt_tokens Number of prefill tokens processed.
+# TYPE vllm:request_prompt_tokens histogram
+vllm:request_prompt_tokens_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_prompt_tokens_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_prompt_tokens_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_prompt_tokens_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_prompt_tokens_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_prompt_tokens_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_prompt_tokens_bucket{engine="0",le="100.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_prompt_tokens_bucket{engine="0",le="200.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 15326.0
+vllm:request_prompt_tokens_bucket{engine="0",le="500.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prompt_tokens_bucket{engine="0",le="1000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prompt_tokens_bucket{engine="0",le="2000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prompt_tokens_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prompt_tokens_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prompt_tokens_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 4.339549e+06
+# HELP vllm:request_prompt_tokens_created Number of prefill tokens processed.
+# TYPE vllm:request_prompt_tokens_created gauge
+vllm:request_prompt_tokens_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305521405e+09
+# HELP vllm:request_generation_tokens Number of generation tokens processed.
+# TYPE vllm:request_generation_tokens histogram
+vllm:request_generation_tokens_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_generation_tokens_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_generation_tokens_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_generation_tokens_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_generation_tokens_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 5903.0
+vllm:request_generation_tokens_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 10289.0
+vllm:request_generation_tokens_bucket{engine="0",le="100.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 19234.0
+vllm:request_generation_tokens_bucket{engine="0",le="200.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 23149.0
+vllm:request_generation_tokens_bucket{engine="0",le="500.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_generation_tokens_bucket{engine="0",le="1000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_generation_tokens_bucket{engine="0",le="2000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_generation_tokens_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_generation_tokens_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_generation_tokens_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.653956e+06
+# HELP vllm:request_generation_tokens_created Number of generation tokens processed.
+# TYPE vllm:request_generation_tokens_created gauge
+vllm:request_generation_tokens_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305521986e+09
+# HELP vllm:iteration_tokens_total Histogram of number of tokens per engine_step.
+# TYPE vllm:iteration_tokens_total histogram
+vllm:iteration_tokens_total_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 8165.0
+vllm:iteration_tokens_total_bucket{engine="0",le="8.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 247289.0
+vllm:iteration_tokens_total_bucket{engine="0",le="16.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 260680.0
+vllm:iteration_tokens_total_bucket{engine="0",le="32.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270372.0
+vllm:iteration_tokens_total_bucket{engine="0",le="64.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270415.0
+vllm:iteration_tokens_total_bucket{engine="0",le="128.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270439.0
+vllm:iteration_tokens_total_bucket{engine="0",le="256.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270475.0
+vllm:iteration_tokens_total_bucket{engine="0",le="512.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_bucket{engine="0",le="1024.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_bucket{engine="0",le="2048.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_bucket{engine="0",le="4096.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_bucket{engine="0",le="8192.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_bucket{engine="0",le="16384.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 270477.0
+vllm:iteration_tokens_total_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.907662e+06
+# HELP vllm:iteration_tokens_total_created Histogram of number of tokens per engine_step.
+# TYPE vllm:iteration_tokens_total_created gauge
+vllm:iteration_tokens_total_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305522473e+09
+# HELP vllm:request_max_num_generation_tokens Histogram of maximum number of requested generation tokens.
+# TYPE vllm:request_max_num_generation_tokens histogram
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 5903.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 10289.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="100.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 19234.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="200.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 23149.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="500.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="1000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="2000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_max_num_generation_tokens_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_max_num_generation_tokens_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_max_num_generation_tokens_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.653956e+06
+# HELP vllm:request_max_num_generation_tokens_created Histogram of maximum number of requested generation tokens.
+# TYPE vllm:request_max_num_generation_tokens_created gauge
+vllm:request_max_num_generation_tokens_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305522895e+09
+# HELP vllm:request_params_n Histogram of the n request parameter.
+# TYPE vllm:request_params_n histogram
+vllm:request_params_n_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_n_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_n_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_n_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_n_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_n_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_n_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_n_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+# HELP vllm:request_params_n_created Histogram of the n request parameter.
+# TYPE vllm:request_params_n_created gauge
+vllm:request_params_n_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305523283e+09
+# HELP vllm:request_params_max_tokens Histogram of the max_tokens request parameter.
+# TYPE vllm:request_params_max_tokens histogram
+vllm:request_params_max_tokens_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="100.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="200.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_params_max_tokens_bucket{engine="0",le="500.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_max_tokens_bucket{engine="0",le="1000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_max_tokens_bucket{engine="0",le="2000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_max_tokens_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_max_tokens_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_params_max_tokens_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 9.7604e+06
+# HELP vllm:request_params_max_tokens_created Histogram of the max_tokens request parameter.
+# TYPE vllm:request_params_max_tokens_created gauge
+vllm:request_params_max_tokens_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305523624e+09
+# HELP vllm:time_to_first_token_seconds Histogram of time to first token in seconds.
+# TYPE vllm:time_to_first_token_seconds histogram
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.001",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.005",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.01",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.02",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.04",model_name="Qwen/Qwen2.5-7B-Instruct"} 53.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.06",model_name="Qwen/Qwen2.5-7B-Instruct"} 211.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.08",model_name="Qwen/Qwen2.5-7B-Instruct"} 11368.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.1",model_name="Qwen/Qwen2.5-7B-Instruct"} 19669.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.25",model_name="Qwen/Qwen2.5-7B-Instruct"} 19770.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 19778.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="0.75",model_name="Qwen/Qwen2.5-7B-Instruct"} 19782.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 19791.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 19843.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 19937.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="7.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 20028.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20119.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20505.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 21267.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="80.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 22845.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="160.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24935.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="640.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24935.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="2560.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24935.0
+vllm:time_to_first_token_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24935.0
+vllm:time_to_first_token_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24935.0
+vllm:time_to_first_token_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 353343.37097787857
+# HELP vllm:time_to_first_token_seconds_created Histogram of time to first token in seconds.
+# TYPE vllm:time_to_first_token_seconds_created gauge
+vllm:time_to_first_token_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305523999e+09
+# HELP vllm:inter_token_latency_seconds Histogram of inter-token latency in seconds.
+# TYPE vllm:inter_token_latency_seconds histogram
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.01",model_name="Qwen/Qwen2.5-7B-Instruct"} 2228.0
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.025",model_name="Qwen/Qwen2.5-7B-Instruct"} 37189.0
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.05",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666131e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.075",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.1",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.15",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.2",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.3",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.4",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.75",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="7.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="80.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.666636e+06
+vllm:inter_token_latency_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 47840.093583888956
+# HELP vllm:inter_token_latency_seconds_created Histogram of inter-token latency in seconds.
+# TYPE vllm:inter_token_latency_seconds_created gauge
+vllm:inter_token_latency_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305524542e+09
+# HELP vllm:request_time_per_output_token_seconds Histogram of time_per_output_token_seconds per request.
+# TYPE vllm:request_time_per_output_token_seconds histogram
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.01",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.025",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.05",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.075",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.1",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.15",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.2",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.3",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.4",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="0.75",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="7.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="80.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_time_per_output_token_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 700.446043740114
+# HELP vllm:request_time_per_output_token_seconds_created Histogram of time_per_output_token_seconds per request.
+# TYPE vllm:request_time_per_output_token_seconds_created gauge
+vllm:request_time_per_output_token_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305525017e+09
+# HELP vllm:e2e_request_latency_seconds Histogram of e2e request latency in seconds.
+# TYPE vllm:e2e_request_latency_seconds histogram
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="0.3",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 6.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="0.8",model_name="Qwen/Qwen2.5-7B-Instruct"} 5877.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 7046.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="1.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 8224.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 10012.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 13304.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 18561.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20036.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="15.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20223.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20415.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="30.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20799.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 21178.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 21548.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="60.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 21911.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="120.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 23898.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="240.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="480.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="960.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="1920.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="7680.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:e2e_request_latency_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:e2e_request_latency_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 336434.39586663246
+# HELP vllm:e2e_request_latency_seconds_created Histogram of e2e request latency in seconds.
+# TYPE vllm:e2e_request_latency_seconds_created gauge
+vllm:e2e_request_latency_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305525477e+09
+# HELP vllm:request_queue_time_seconds Histogram of time spent in WAITING phase for request.
+# TYPE vllm:request_queue_time_seconds histogram
+vllm:request_queue_time_seconds_bucket{engine="0",le="0.3",model_name="Qwen/Qwen2.5-7B-Instruct"} 19761.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 19764.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="0.8",model_name="Qwen/Qwen2.5-7B-Instruct"} 19767.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 19779.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="1.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 19799.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 19815.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 19829.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 19924.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20107.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="15.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20298.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20490.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="30.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 20877.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 21251.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 21628.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="60.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 21992.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="120.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 23924.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="240.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="480.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="960.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="1920.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="7680.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_queue_time_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_queue_time_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_queue_time_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 287770.13023508445
+# HELP vllm:request_queue_time_seconds_created Histogram of time spent in WAITING phase for request.
+# TYPE vllm:request_queue_time_seconds_created gauge
+vllm:request_queue_time_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305525951e+09
+# HELP vllm:request_inference_time_seconds Histogram of time spent in RUNNING phase for request.
+# TYPE vllm:request_inference_time_seconds histogram
+vllm:request_inference_time_seconds_bucket{engine="0",le="0.3",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 11.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="0.8",model_name="Qwen/Qwen2.5-7B-Instruct"} 7345.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 8794.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="1.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 10289.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 13367.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 16561.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 22843.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="15.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="30.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="60.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="120.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="240.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="480.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="960.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="1920.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="7680.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_inference_time_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 48174.81126769807
+# HELP vllm:request_inference_time_seconds_created Histogram of time spent in RUNNING phase for request.
+# TYPE vllm:request_inference_time_seconds_created gauge
+vllm:request_inference_time_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305526438e+09
+# HELP vllm:request_prefill_time_seconds Histogram of time spent in PREFILL phase for request.
+# TYPE vllm:request_prefill_time_seconds histogram
+vllm:request_prefill_time_seconds_bucket{engine="0",le="0.3",model_name="Qwen/Qwen2.5-7B-Instruct"} 24400.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="0.8",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="1.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="15.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="30.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="60.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="120.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="240.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="480.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="960.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="1920.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="7680.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_time_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1399.9310123377945
+# HELP vllm:request_prefill_time_seconds_created Histogram of time spent in PREFILL phase for request.
+# TYPE vllm:request_prefill_time_seconds_created gauge
+vllm:request_prefill_time_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305526958e+09
+# HELP vllm:request_decode_time_seconds Histogram of time spent in DECODE phase for request.
+# TYPE vllm:request_decode_time_seconds histogram
+vllm:request_decode_time_seconds_bucket{engine="0",le="0.3",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="0.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 2978.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="0.8",model_name="Qwen/Qwen2.5-7B-Instruct"} 7346.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 8794.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="1.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 10289.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 14951.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="2.5",model_name="Qwen/Qwen2.5-7B-Instruct"} 16567.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 22843.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="15.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="30.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="40.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="60.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="120.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="240.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="480.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="960.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="1920.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="7680.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_decode_time_seconds_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 46774.88025536027
+# HELP vllm:request_decode_time_seconds_created Histogram of time spent in DECODE phase for request.
+# TYPE vllm:request_decode_time_seconds_created gauge
+vllm:request_decode_time_seconds_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305527506e+09
+# HELP vllm:request_num_preemptions Histogram of the number of times a request was preempted.
+# TYPE vllm:request_num_preemptions histogram
+vllm:request_num_preemptions_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_bucket{engine="0",le="3.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_bucket{engine="0",le="4.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_num_preemptions_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+# HELP vllm:request_num_preemptions_created Histogram of the number of times a request was preempted.
+# TYPE vllm:request_num_preemptions_created gauge
+vllm:request_num_preemptions_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305528483e+09
+# HELP vllm:request_prefill_kv_computed_tokens Histogram of new KV tokens computed during prefill (excluding cached tokens).
+# TYPE vllm:request_prefill_kv_computed_tokens histogram
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="1.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1118.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="2.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1675.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="5.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 5352.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="10.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 15520.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="20.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24340.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="50.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24340.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="100.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24345.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="200.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24395.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="500.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="1000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="2000.0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_kv_computed_tokens_bucket{engine="0",le="+Inf",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_kv_computed_tokens_count{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 24401.0
+vllm:request_prefill_kv_computed_tokens_sum{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 211549.0
+# HELP vllm:request_prefill_kv_computed_tokens_created Histogram of new KV tokens computed during prefill (excluding cached tokens).
+# TYPE vllm:request_prefill_kv_computed_tokens_created gauge
+vllm:request_prefill_kv_computed_tokens_created{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 1.7934057305528822e+09
+# HELP vllm:cache_config_info Information of the LLMEngine CacheConfig
+# TYPE vllm:cache_config_info gauge
+vllm:cache_config_info{_block_size_resolved="True",block_size="16",cache_dtype="auto",effective_attention_block_size="16",enable_mamba_shared_prefix_checkpoint="False",enable_prefix_caching="True",engine="0",gpu_memory_utilization="0.92",is_attention_free="False",kv_cache_dtype_skip_layers="[]",kv_cache_layout="None",kv_cache_max_concurrency="114.71875",kv_cache_memory_bytes="None",kv_cache_size_tokens="469888",kv_offloading_backend="native",kv_offloading_size="None",kv_sharing_fast_prefill="False",mamba_block_size="None",mamba_cache_dtype="auto",mamba_cache_mode="none",mamba_page_size_padded="None",mamba_ssm_cache_dtype="auto",num_cpu_blocks="None",num_gpu_blocks="29368",num_gpu_blocks_override="None",prefix_cache_retention_interval="0",prefix_caching_hash_algo="sha256",prefix_match_unit="None",replayssm_buffer_len="16",skip_page_size_padded="None",sliding_window="None",swa_bounded_replay="True",use_kda_recoverssm="False",use_replayssm="False",user_specified_block_size="False",user_specified_mamba_block_size="False"} 1.0
+# HELP http_requests_total Total number of requests by method, status and handler.
+# TYPE http_requests_total counter
+http_requests_total{handler="/v1/models",method="GET",status="2xx"} 16.0
+http_requests_total{handler="/v1/chat/completions",method="POST",status="2xx"} 24943.0
+# HELP http_requests_created Total number of requests by method, status and handler.
+# TYPE http_requests_created gauge
+http_requests_created{handler="/v1/models",method="GET",status="2xx"} 1.7934057397985814e+09
+http_requests_created{handler="/v1/chat/completions",method="POST",status="2xx"} 1.7934057745630279e+09
+# HELP http_request_size_bytes Content length of incoming requests by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_request_size_bytes summary
+http_request_size_bytes_count{handler="/v1/models"} 16.0
+http_request_size_bytes_sum{handler="/v1/models"} 0.0
+http_request_size_bytes_count{handler="/v1/chat/completions"} 24943.0
+http_request_size_bytes_sum{handler="/v1/chat/completions"} 1.8684016e+07
+# HELP http_request_size_bytes_created Content length of incoming requests by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_request_size_bytes_created gauge
+http_request_size_bytes_created{handler="/v1/models"} 1.7934057397986226e+09
+http_request_size_bytes_created{handler="/v1/chat/completions"} 1.7934057745630636e+09
+# HELP http_response_size_bytes Content length of outgoing responses by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_response_size_bytes summary
+http_response_size_bytes_count{handler="/v1/models"} 16.0
+http_response_size_bytes_sum{handler="/v1/models"} 7712.0
+http_response_size_bytes_count{handler="/v1/chat/completions"} 24943.0
+http_response_size_bytes_sum{handler="/v1/chat/completions"} 2.3347316e+07
+# HELP http_response_size_bytes_created Content length of outgoing responses by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_response_size_bytes_created gauge
+http_response_size_bytes_created{handler="/v1/models"} 1.7934057397986665e+09
+http_response_size_bytes_created{handler="/v1/chat/completions"} 1.7934057745630963e+09
+# HELP http_request_duration_highr_seconds Latency with many buckets but no API specific labels. Made for more accurate percentile calculations. 
+# TYPE http_request_duration_highr_seconds histogram
+http_request_duration_highr_seconds_bucket{le="0.01"} 16.0
+http_request_duration_highr_seconds_bucket{le="0.025"} 16.0
+http_request_duration_highr_seconds_bucket{le="0.05"} 16.0
+http_request_duration_highr_seconds_bucket{le="0.075"} 16.0
+http_request_duration_highr_seconds_bucket{le="0.1"} 16.0
+http_request_duration_highr_seconds_bucket{le="0.25"} 18.0
+http_request_duration_highr_seconds_bucket{le="0.5"} 31.0
+http_request_duration_highr_seconds_bucket{le="0.75"} 5469.0
+http_request_duration_highr_seconds_bucket{le="1.0"} 7074.0
+http_request_duration_highr_seconds_bucket{le="1.5"} 8256.0
+http_request_duration_highr_seconds_bucket{le="2.0"} 9859.0
+http_request_duration_highr_seconds_bucket{le="2.5"} 13337.0
+http_request_duration_highr_seconds_bucket{le="3.0"} 15834.0
+http_request_duration_highr_seconds_bucket{le="3.5"} 18155.0
+http_request_duration_highr_seconds_bucket{le="4.0"} 18566.0
+http_request_duration_highr_seconds_bucket{le="4.5"} 18586.0
+http_request_duration_highr_seconds_bucket{le="5.0"} 18596.0
+http_request_duration_highr_seconds_bucket{le="7.5"} 19981.0
+http_request_duration_highr_seconds_bucket{le="10.0"} 20076.0
+http_request_duration_highr_seconds_bucket{le="30.0"} 20839.0
+http_request_duration_highr_seconds_bucket{le="60.0"} 21951.0
+http_request_duration_highr_seconds_bucket{le="+Inf"} 24959.0
+http_request_duration_highr_seconds_count 24959.0
+http_request_duration_highr_seconds_sum 401377.86318111746
+# HELP http_request_duration_highr_seconds_created Latency with many buckets but no API specific labels. Made for more accurate percentile calculations. 
+# TYPE http_request_duration_highr_seconds_created gauge
+http_request_duration_highr_seconds_created 1.7934057309012012e+09
+# HELP http_request_duration_seconds Latency with only few buckets by handler. Made to be only used if aggregation by handler is important. 
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{handler="/v1/models",le="0.1",method="GET"} 16.0
+http_request_duration_seconds_bucket{handler="/v1/models",le="0.5",method="GET"} 16.0
+http_request_duration_seconds_bucket{handler="/v1/models",le="1.0",method="GET"} 16.0
+http_request_duration_seconds_bucket{handler="/v1/models",le="+Inf",method="GET"} 16.0
+http_request_duration_seconds_count{handler="/v1/models",method="GET"} 16.0
+http_request_duration_seconds_sum{handler="/v1/models",method="GET"} 0.023777231690473855
+http_request_duration_seconds_bucket{handler="/v1/chat/completions",le="0.1",method="POST"} 0.0
+http_request_duration_seconds_bucket{handler="/v1/chat/completions",le="0.5",method="POST"} 15.0
+http_request_duration_seconds_bucket{handler="/v1/chat/completions",le="1.0",method="POST"} 7058.0
+http_request_duration_seconds_bucket{handler="/v1/chat/completions",le="+Inf",method="POST"} 24943.0
+http_request_duration_seconds_count{handler="/v1/chat/completions",method="POST"} 24943.0
+http_request_duration_seconds_sum{handler="/v1/chat/completions",method="POST"} 401377.83940388577
+# HELP http_request_duration_seconds_created Latency with only few buckets by handler. Made to be only used if aggregation by handler is important. 
+# TYPE http_request_duration_seconds_created gauge
+http_request_duration_seconds_created{handler="/v1/models",method="GET"} 1.7934057397987187e+09
+http_request_duration_seconds_created{handler="/v1/chat/completions",method="POST"} 1.7934057745631404e+09
+
+# dbtool
+dbtool_pool_max 8
+dbtool_pool_in_use 0
+dbtool_pool_waiting 0
+dbtool_attempts_stored_total 828
+dbtool_attempts_duplicate_total 0
+dbtool_delay_ms 0
+dbtool_requests_total{route="get_issue",status="200"} 828
+dbtool_requests_total{route="post_attempt",status="200"} 828
+
+# sandbox
+sandbox_slots 4
+sandbox_slots_busy 0
+sandbox_executions_total 828
+sandbox_refused_total 0
+sandbox_repeated_executions_total 0
+
+# mockci
+ci_runners 103
+ci_queued 0
+ci_running 0
+ci_runs_total 863
+ci_runs_finished_total 863
+ci_duplicate_starts_total 0
+ci_polls_total 3277
+ci_refused_total 85
+ci_flaky_total 35
+ci_queue_wait_seconds_sum 877.554
+
+# aquifer
+# HELP aquifer_node_info This node's id, as sent to backends in X-Aqueduct-Node-Id.
+# TYPE aquifer_node_info gauge
+aquifer_node_info{node_id="7812155cd4e448"} 1
+# HELP aquifer_jobs_total Jobs that reached a terminal state, by outcome (completed, failed, expired).
+# TYPE aquifer_jobs_total counter
+aquifer_jobs_total{target="http://127.0.0.1:18000",outcome="completed"} 1399
+aquifer_jobs_total{target="http://127.0.0.1:18500",outcome="completed"} 1421
+# HELP aquifer_dispatch_attempts_total Attempts at a target API, retries included, by result (2xx, 4xx, 429, 5xx, error = no response).
+# TYPE aquifer_dispatch_attempts_total counter
+aquifer_dispatch_attempts_total{target="http://127.0.0.1:18000",status_class="2xx"} 1399
+aquifer_dispatch_attempts_total{target="http://127.0.0.1:18500",status_class="2xx"} 1421
+aquifer_dispatch_attempts_total{target="http://127.0.0.1:18500",status_class="429"} 84
+# HELP aquifer_admission_rejected_total Jobs refused with 429, by reason.
+# TYPE aquifer_admission_rejected_total counter
+# HELP aquifer_webhooks_total Completion webhooks that finished, by outcome (delivered, or failed after its retries).
+# TYPE aquifer_webhooks_total counter
+# HELP aquifer_queue_wait_seconds Time from submission to a job's first dispatch.
+# TYPE aquifer_queue_wait_seconds histogram
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.005"} 29
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.01"} 29
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.025"} 30
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.05"} 33
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.1"} 40
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.25"} 77
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.5"} 143
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="1"} 192
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="2.5"} 210
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="5"} 242
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="10"} 311
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="30"} 552
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="60"} 885
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="120"} 1244
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="300"} 1399
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="600"} 1399
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="+Inf"} 1399
+aquifer_queue_wait_seconds_sum{target="http://127.0.0.1:18000"} 71630.74688639704
+aquifer_queue_wait_seconds_count{target="http://127.0.0.1:18000"} 1399
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.005"} 338
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.01"} 338
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.025"} 339
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.05"} 340
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.1"} 341
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.25"} 348
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.5"} 357
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="1"} 364
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="2.5"} 400
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="5"} 477
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="10"} 704
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="30"} 1421
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="60"} 1421
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="120"} 1421
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="300"} 1421
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="600"} 1421
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="+Inf"} 1421
+aquifer_queue_wait_seconds_sum{target="http://127.0.0.1:18500"} 11867.490032648
+aquifer_queue_wait_seconds_count{target="http://127.0.0.1:18500"} 1421
+# HELP aquifer_job_duration_seconds Time from submission to a terminal state, by outcome.
+# TYPE aquifer_job_duration_seconds histogram
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.005"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.01"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.025"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.05"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.1"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.25"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.5"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="1"} 39
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="2.5"} 112
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="5"} 206
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="10"} 284
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="30"} 528
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="60"} 877
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="120"} 1234
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="300"} 1399
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="600"} 1399
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="+Inf"} 1399
+aquifer_job_duration_seconds_sum{target="http://127.0.0.1:18000",outcome="completed"} 74467.317361417
+aquifer_job_duration_seconds_count{target="http://127.0.0.1:18000",outcome="completed"} 1399
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.005"} 331
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.01"} 331
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.025"} 331
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.05"} 332
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.1"} 333
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.25"} 339
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.5"} 347
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="1"} 354
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="2.5"} 395
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="5"} 470
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="10"} 686
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="30"} 1404
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="60"} 1421
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="120"} 1421
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="300"} 1421
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="600"} 1421
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="+Inf"} 1421
+aquifer_job_duration_seconds_sum{target="http://127.0.0.1:18500",outcome="completed"} 12800.247805577992
+aquifer_job_duration_seconds_count{target="http://127.0.0.1:18500",outcome="completed"} 1421
+# HELP aquifer_active_queues Queues on this node with work waiting for the target API (one per tenant with account queues on).
+# TYPE aquifer_active_queues gauge
+aquifer_active_queues{target="http://127.0.0.1:18000"} 0
+aquifer_active_queues{target="http://127.0.0.1:18100"} 0
+aquifer_active_queues{target="http://127.0.0.1:18200"} 0
+aquifer_active_queues{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_backlog_jobs Jobs on this node queued or in flight for the target API.
+# TYPE aquifer_backlog_jobs gauge
+aquifer_backlog_jobs{target="http://127.0.0.1:18000"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18100"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18200"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_flow_rate_rps Sum of the active queues' current dispatch rates, after the target API's pacing headers.
+# TYPE aquifer_flow_rate_rps gauge
+aquifer_flow_rate_rps{target="http://127.0.0.1:18000"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18100"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18200"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_fairness_jain Jain's index (0-1) over queues with work waiting, by jobs each finished in about the last minute. 1 is perfectly even.
+# TYPE aquifer_fairness_jain gauge
+

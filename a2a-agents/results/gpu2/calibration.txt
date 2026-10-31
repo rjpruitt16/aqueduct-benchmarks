@@ -1,0 +1,2 @@
+CAPACITY=2.1333 BUSY=r1@0.05=0.02 r2@0.1=0.07 r3@0.2=0.06 r4@0.4=0.18 r5@0.8=0.38 FIX_RATE=1.000 PER_ISSUE=add-sign=23/23 clamp=23/23 count-vowels=22/22 fizzbuzz=22/22 is-even=23/23 max-of=23/23 mean=22/22 reverse-words=23/23
+CI_RUNNERS=103 CI_RATE_PER_MIN=431 CI_BURST=72
