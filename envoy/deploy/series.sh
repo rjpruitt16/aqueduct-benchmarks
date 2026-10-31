@@ -6,6 +6,7 @@
 # Usage: deploy/series.sh <series-name>   (FLY_ORG and IMAGE as for run.sh)
 #
 #   ROUNDS  default 3
+#   FIRST   the first round's number (default 1), to add rounds to a series
 #   RUNS    mode:regime pairs, default every front door in steady and changing:
 #           "envoy:steady aquifer:steady envoy:changing aquifer:changing"
 set -u
@@ -14,8 +15,8 @@ ROUNDS=${ROUNDS:-3}
 RUNS=${RUNS:-envoy:steady aquifer:steady envoy:changing aquifer:changing}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p logs
-r=1
-while [ "$r" -le "$ROUNDS" ]; do
+r=${FIRST:-1}
+while [ "$r" -lt "$((${FIRST:-1} + ROUNDS))" ]; do
   echo "== round $r $(date -u +%TZ)"
   for run in $RUNS; do
     name=$SERIES-${run%%:*}-${run#*:}-$r

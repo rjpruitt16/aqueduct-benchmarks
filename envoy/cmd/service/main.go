@@ -20,6 +20,13 @@
 //	         waits for the job's result, and a retry with the same
 //	         idempotency key joins the job already held instead of running
 //	         it again
+//	envoy-idem   Envoy, behind an idempotency check in Redis, the
+//	         Stripe-style pattern: a finished job is answered from its stored
+//	         result, and a repeat of a job that is running waits for it
+//	         instead of calling the backend
+//	envoy-queue  idempotency plus a fair queue in Redis: the job is queued
+//	         once on its tenant's list, every call waits for its result, and
+//	         cmd/dispatcher sends it to the backend through Envoy
 //
 // The job's ID is the request's ID and the service's name, so every retry,
 // at any level, asks for the same job, and the backend can count repeats.
@@ -32,7 +39,8 @@
 //	NAME          api | orders | inventory | payments
 //	DOWNSTREAM    the services this one calls, comma-separated base URLs
 //	              (none for the bottom services)
-//	MODE          envoy | aquifer (bottom services)
+//	MODE          envoy | aquifer | envoy-idem | envoy-queue (bottom services)
+//	REDIS_URL     redis://host:port (envoy-idem and envoy-queue)
 //	FRONT_URL     the front door's base URL (bottom services)
 //	BACKEND_URL   the backend's /work URL, for Aquifer's job (aquifer mode)
 //	ATTEMPTS      tries per call (default 3)
@@ -59,6 +67,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type svc struct {
@@ -68,6 +78,11 @@ type svc struct {
 	delays                        []time.Duration
 	timeout                       time.Duration
 	http                          *http.Client
+	rdb                           *redis.Client
+
+	// Calls waiting for a job's result, woken by its done:<job> message.
+	wmu     sync.Mutex
+	waiting map[string][]chan struct{}
 
 	mu       sync.Mutex
 	counts   counts
@@ -81,6 +96,8 @@ type counts struct {
 	Failed        int            `json:"answered_503"`
 	CallerGone    int            `json:"caller_gone"`
 	Sent          int            `json:"sent"`
+	FrontDoor     int            `json:"front_door"`
+	FromStore     int            `json:"answered_from_store"`
 	SentRetries   int            `json:"sent_retries"`
 	SentFailures  map[string]int `json:"sent_failures"`
 	ReceivedByTen map[string]int `json:"received_by_tenant"`
@@ -101,6 +118,7 @@ func main() {
 		http:       &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 1024}},
 		counts:     counts{SentFailures: map[string]int{}, ReceivedByTen: map[string]int{}, SentByTen: map[string]int{}},
 		interval:   map[string]int{},
+		waiting:    map[string][]chan struct{}{},
 	}
 	for _, u := range strings.Split(os.Getenv("DOWNSTREAM"), ",") {
 		if u = strings.TrimRight(strings.TrimSpace(u), "/"); u != "" {
@@ -114,8 +132,21 @@ func main() {
 		}
 		s.delays = append(s.delays, v)
 	}
-	if len(s.downstream) == 0 && s.mode != "envoy" && s.mode != "aquifer" {
-		log.Fatalf("MODE must be envoy or aquifer, got %q", s.mode)
+	if len(s.downstream) == 0 {
+		switch s.mode {
+		case "envoy", "aquifer":
+		case "envoy-idem", "envoy-queue":
+			opt, err := redis.ParseURL(os.Getenv("REDIS_URL"))
+			if err != nil {
+				log.Fatalf("REDIS_URL: %v", err)
+			}
+			// Every request in flight may hold a connection while it waits.
+			opt.PoolSize = 512
+			s.rdb = redis.NewClient(opt)
+			go s.listen()
+		default:
+			log.Fatalf("MODE must be envoy, aquifer, envoy-idem or envoy-queue, got %q", s.mode)
+		}
 	}
 	if u := os.Getenv("REPORT_URL"); u != "" {
 		go s.report(strings.TrimRight(u, "/") + "/svc-" + s.name)
@@ -229,21 +260,17 @@ func (s *svc) next(ctx context.Context, base, tenant, id string) error {
 
 // bottom runs this service's backend job through the front door.
 func (s *svc) bottom(ctx context.Context, tenant, job string) error {
-	if s.mode == "envoy" {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, s.front+"/work", nil)
-		req.Header.Set("X-Tenant", tenant)
-		req.Header.Set("X-Job-Id", job)
-		resp, err := s.http.Do(req)
-		if err != nil {
-			return errOf(ctx, err)
-		}
-		defer resp.Body.Close()
-		io.Copy(io.Discard, resp.Body)
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("http_%d", resp.StatusCode)
-		}
-		return nil
+	switch s.mode {
+	case "envoy-idem":
+		return s.idem(ctx, tenant, job)
+	case "envoy-queue":
+		return s.queue(ctx, tenant, job)
+	case "envoy":
+		return s.work(ctx, tenant, job)
 	}
+	s.mu.Lock()
+	s.counts.FrontDoor++
+	s.mu.Unlock()
 	body, _ := json.Marshal(map[string]any{
 		"user_id":        tenant,
 		"idempotent_key": job,
@@ -303,6 +330,156 @@ func (s *svc) bottom(ctx context.Context, tenant, job string) error {
 	return errors.New("stream_ended")
 }
 
+// work runs the job through Envoy's /work.
+func (s *svc) work(ctx context.Context, tenant, job string) error {
+	s.mu.Lock()
+	s.counts.FrontDoor++
+	s.mu.Unlock()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, s.front+"/work", nil)
+	req.Header.Set("X-Tenant", tenant)
+	req.Header.Set("X-Job-Id", job)
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return errOf(ctx, err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("http_%d", resp.StatusCode)
+	}
+	return nil
+}
+
+// idem runs the job through Envoy at most once at a time: a finished job is
+// answered from its stored result, and while one call holds the job's lock,
+// the others wait for its result instead of calling the backend. A refused
+// or failed call releases the lock, so the next try runs the job.
+func (s *svc) idem(ctx context.Context, tenant, job string) error {
+	done := s.wait(job)
+	defer s.unwait(job, done)
+	if ok, err := s.finished(ctx, job); err != nil || ok {
+		return err
+	}
+	got, err := s.rdb.SetNX(ctx, "lock:"+job, s.name, 30*time.Second).Result()
+	if err != nil {
+		return errOf(ctx, err)
+	}
+	if !got {
+		return s.await(ctx, job, done)
+	}
+	if err := s.work(ctx, tenant, job); err != nil {
+		s.rdb.Del(context.WithoutCancel(ctx), "lock:"+job)
+		return err
+	}
+	return s.store(context.WithoutCancel(ctx), job)
+}
+
+// queue puts the job on its tenant's list once and waits for its result;
+// cmd/dispatcher runs it.
+func (s *svc) queue(ctx context.Context, tenant, job string) error {
+	done := s.wait(job)
+	defer s.unwait(job, done)
+	if ok, err := s.finished(ctx, job); err != nil || ok {
+		return err
+	}
+	fresh, err := s.rdb.SetNX(ctx, "queued:"+job, tenant, time.Hour).Result()
+	if err != nil {
+		return errOf(ctx, err)
+	}
+	if fresh {
+		_, err = s.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+			p.RPush(ctx, "q:"+tenant, job)
+			p.SAdd(ctx, "tenants", tenant)
+			return nil
+		})
+		if err != nil {
+			s.rdb.Del(context.WithoutCancel(ctx), "queued:"+job)
+			return errOf(ctx, err)
+		}
+	}
+	return s.await(ctx, job, done)
+}
+
+// finished reports whether the job's result is already stored.
+func (s *svc) finished(ctx context.Context, job string) (bool, error) {
+	n, err := s.rdb.Exists(ctx, "result:"+job).Result()
+	if err != nil {
+		return false, errOf(ctx, err)
+	}
+	if n > 0 {
+		s.mu.Lock()
+		s.counts.FromStore++
+		s.mu.Unlock()
+	}
+	return n > 0, nil
+}
+
+// store records the job's result and wakes everyone waiting for it.
+func (s *svc) store(ctx context.Context, job string) error {
+	_, err := s.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+		p.Set(ctx, "result:"+job, "ok", time.Hour)
+		p.Publish(ctx, "done:"+job, "ok")
+		return nil
+	})
+	return err
+}
+
+// await waits for the job's result, or for this try to end.
+func (s *svc) await(ctx context.Context, job string, done chan struct{}) error {
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		// The result may have landed between the check and the wait.
+		if n, _ := s.rdb.Exists(context.WithoutCancel(ctx), "result:"+job).Result(); n > 0 {
+			return nil
+		}
+		return ctx.Err()
+	}
+}
+
+// wait registers a call waiting for job; register before checking for the
+// result, so a result stored in between still wakes it.
+func (s *svc) wait(job string) chan struct{} {
+	ch := make(chan struct{})
+	s.wmu.Lock()
+	s.waiting[job] = append(s.waiting[job], ch)
+	s.wmu.Unlock()
+	return ch
+}
+
+func (s *svc) unwait(job string, ch chan struct{}) {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	list := s.waiting[job]
+	for i, c := range list {
+		if c == ch {
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(s.waiting, job)
+	} else {
+		s.waiting[job] = list
+	}
+}
+
+// listen wakes the calls waiting for each job whose result is published: one
+// subscription for this service's jobs, not one per call.
+func (s *svc) listen() {
+	ps := s.rdb.PSubscribe(context.Background(), "done:*-"+s.name)
+	for msg := range ps.Channel() {
+		job := strings.TrimPrefix(msg.Channel, "done:")
+		s.wmu.Lock()
+		for _, ch := range s.waiting[job] {
+			close(ch)
+		}
+		delete(s.waiting, job)
+		s.wmu.Unlock()
+	}
+}
+
 // errOf names a failed request: a timeout or cancellation, or a network error.
 func errOf(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
@@ -324,7 +501,16 @@ func (s *svc) report(url string) {
 		s.mu.Lock()
 		intervals = append(intervals, map[string]any{"t": int(time.Since(start).Seconds()), "received": s.interval["received"], "sent": s.interval["sent"]})
 		s.interval = map[string]int{}
-		raw, _ := json.Marshal(map[string]any{"name": s.name, "mode": s.mode, "counts": s.counts, "intervals": intervals})
+		out := map[string]any{"name": s.name, "mode": s.mode, "counts": s.counts, "intervals": intervals}
+		s.mu.Unlock()
+		if s.rdb != nil {
+			// The shared store's own counters: calls, CPU and memory.
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			out["redis_info"], _ = s.rdb.Info(ctx, "stats", "commandstats", "cpu", "memory").Result()
+			cancel()
+		}
+		s.mu.Lock()
+		raw, _ := json.Marshal(out)
 		s.mu.Unlock()
 		if resp, err := control.Post(url, "application/json", bytes.NewReader(raw)); err == nil {
 			resp.Body.Close()

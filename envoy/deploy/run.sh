@@ -3,9 +3,13 @@
 # front door in one region, load clients in several regions, waits for every
 # client's report, copies the results out, and destroys the app.
 #
-# Usage: deploy/run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>
+# Usage: deploy/run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>
 #
 # Front doors: envoy, aquifer, or both (Envoy at the edge, Aquifer behind it).
+# For the wild regime, two more keep Envoy and add what a team would build
+# itself, with Redis (see DESIGN-diy.md): envoy-idem (idempotency keys in the
+# bottom services) and envoy-queue (idempotency plus a per-tenant queue that
+# cmd/dispatcher runs through Envoy).
 #
 # Environment:
 #   FLY_ORG        Fly organization (required)
@@ -63,9 +67,9 @@
 # for Envoy and Aquifer); one shared-cpu-2x client per region.
 set -eu
 
-MODE=${1:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
-REGIME=${2:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
-NAME=${3:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
+MODE=${1:?usage: run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
+REGIME=${2:?usage: run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
+NAME=${3:?usage: run.sh <envoy|aquifer|both|envoy-idem|envoy-queue> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
 : "${FLY_ORG:?set FLY_ORG}"
 : "${IMAGE:?set IMAGE}"
 ENVOY_IMAGE=${ENVOY_IMAGE:-envoyproxy/envoy:v1.39.3}
@@ -73,7 +77,7 @@ REGION=${REGION:-ord}
 APP=aqb-envoy-$NAME
 OUT=results/$NAME
 HERE=$(cd "$(dirname "$0")" && pwd)
-case "$MODE" in envoy | aquifer | both) ;; *) echo "mode must be envoy, aquifer or both" >&2; exit 2 ;; esac
+case "$MODE" in envoy | aquifer | both | envoy-idem | envoy-queue) ;; *) echo "mode must be envoy, aquifer, both, envoy-idem or envoy-queue" >&2; exit 2 ;; esac
 EXTRA_BACKENDS=""
 ONLINE_AFTER=15m
 GLOBAL_RPS=80
@@ -226,6 +230,21 @@ for spec in $EXTRA_BACKENDS; do
   BACKENDS="$BACKENDS $(host "${spec%%:*}")"
 done
 
+# The shared store for the do-it-yourself setups: Redis with append-only
+# persistence, as a team would run it for a queue.
+REDIS_URL=""
+case "$MODE" in envoy-idem | envoy-queue)
+  [ "$WORKLOAD" = wild ] || fail "$MODE is for the wild regime"
+  echo "== redis"
+  rcfg=$(mktemp)
+  printf 'bind * -::*\nprotected-mode no\nappendonly yes\nappendfsync everysec\nsave ""\ndir /data\n' > "$rcfg"
+  run_machine redis redis:7.4-alpine -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
+    --restart on-failure --detach --file-local /etc/redis.conf="$rcfg" redis-server /etc/redis.conf >/dev/null
+  rm -f "$rcfg"
+  REDIS_URL="redis://$(host redis):6379"
+  ;;
+esac
+
 # The microservices, bottom first so each knows the hosts it calls. The
 # bottom ones learn the front door from the run's settings.
 API=""
@@ -287,7 +306,7 @@ cfg=$(mktemp)
 POOL=""
 REGISTER_URL=""
 AQUIFER=""
-if [ "$MODE" = envoy ]; then
+if [ "$MODE" != aquifer ] && [ "$MODE" != both ]; then
   echo "== envoy"
   # shellcheck disable=SC2086
   envoy_config envoy.yaml.tmpl "$TENANT_RPS" "$GLOBAL_RPS" $BACKENDS
@@ -295,6 +314,11 @@ if [ "$MODE" = envoy ]; then
   run_machine front "$ENVOY_IMAGE" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
     --restart on-failure --detach --file-local /etc/envoy/envoy.yaml="$cfg" >/dev/null
   FRONT="http://$(host front):8080"
+  if [ "$MODE" = envoy-queue ]; then
+    echo "== dispatcher"
+    run_machine dispatcher "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
+      --restart on-failure --detach -e ROLE=dispatcher -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
+  fi
 else
   echo "== aquifer"
   {
@@ -356,12 +380,13 @@ START_AT=$(($(date +%s) + 60))
 config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$BACKEND:8080/work" \
   --arg phases "$PHASES" --arg start "$START_AT" --arg report "http://$BACKEND:8080/report" \
   --arg pool "$POOL" --arg register "$REGISTER_URL" --arg workload "$WORKLOAD" \
-  --arg api "$API" --arg bursts "$BURSTS" --arg outage "$OUTAGE" \
+  --arg api "$API" --arg bursts "$BURSTS" --arg outage "$OUTAGE" --arg redis "$REDIS_URL" \
   '{MODE: $mode, TARGET: $target, BACKEND_URL: $backend, PHASES: $phases, START_AT: $start, REPORT_URL: $report}
    + (if $pool == "" then {} else {POOL: $pool, REGISTER_URL: $register} end)
    + (if $workload == "chains" then {WORKLOAD: "chains", MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", DRAIN: "60m"} else {} end)
    + (if $workload == "wild" then {WORKLOAD: "wild", TARGET: $api, FRONT_URL: $target, BURSTS: $bursts, OUTAGE: $outage,
-        MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "15s", DRAIN: "60m"} else {} end)')
+        MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "15s", DRAIN: "60m"} else {} end)
+   + (if $redis == "" then {} else {REDIS_URL: $redis} end)')
 retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
   fail "could not publish the run's settings"
 echo "== load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
@@ -373,7 +398,8 @@ until [ "$(on backend "ls /out/clients" | grep -v '^svc-' | grep -c json)" -ge "
   [ "$i" -gt 240 ] && fail "clients did not report within 2 hours"
   sleep 30
 done
-# The services report every 10 s; let them send their last counts.
+# The services (and the dispatcher) report every 10 s; let them send their
+# last counts.
 [ "$WORKLOAD" = wild ] && sleep 20
 
 echo "== copying results to $OUT"
