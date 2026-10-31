@@ -3,7 +3,7 @@
 # front door in one region, load clients in several regions, waits for every
 # client's report, copies the results out, and destroys the app.
 #
-# Usage: deploy/run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>
+# Usage: deploy/run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>
 #
 # Front doors: envoy, aquifer, or both (Envoy at the edge, Aquifer behind it).
 #
@@ -38,6 +38,19 @@
 #   vfar-polite   4  syd     polite
 #   vfar-aggr     4  syd     aggressive
 #
+# The wild regime puts four microservices between the clients and the front
+# door (cmd/service): api -> orders -> inventory + payments -> front door ->
+# backend, each retrying what it calls 3 times, 50 and 100 ms apart, with
+# per-try timeouts of 10, 8 and 5 s. A client request needs two backend
+# jobs. Clients time out after 15 s and retry until they succeed, in four
+# styles (polite, nojitter, aggressive, stack: see cmd/client). Bursts of 4x
+# come on top of the phases, and the backend is down for 60 s at the peak.
+# 15 tenants in requests/s at 1x (1x = 21 requests/s = 42 jobs/s), each with
+# its own workers, two client machines per region (the large tenant alone):
+#   ord  L1 3 polite x40; s1 polite, s2 nojitter, s3 aggressive, s4 stack, 1 each x10
+#   lhr  L2 3 nojitter x40; s5-s8 as in ord
+#   syd  L3 3 stack x40; s9-s12 as in ord
+#
 # Tenants (jobs/s at 1x load, 1x = 40 jobs/s = the starting capacity):
 #   big      20    in REGION, next to the backend
 #   medium   10    iad
@@ -50,9 +63,9 @@
 # for Envoy and Aquifer); one shared-cpu-2x client per region.
 set -eu
 
-MODE=${1:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>}
-REGIME=${2:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>}
-NAME=${3:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|smoke|scaleout-smoke|chains-smoke> <run-name>}
+MODE=${1:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
+REGIME=${2:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
+NAME=${3:?usage: run.sh <envoy|aquifer|both> <steady|changing|scaleout|chains|wild|smoke|scaleout-smoke|chains-smoke|wild-smoke> <run-name>}
 : "${FLY_ORG:?set FLY_ORG}"
 : "${IMAGE:?set IMAGE}"
 ENVOY_IMAGE=${ENVOY_IMAGE:-envoyproxy/envoy:v1.39.3}
@@ -65,6 +78,8 @@ EXTRA_BACKENDS=""
 ONLINE_AFTER=15m
 GLOBAL_RPS=80
 WORKLOAD=jobs
+BURSTS=""
+OUTAGE=""
 case "$REGIME" in
   smoke)
     PHASES=steady:2m:0.5
@@ -101,7 +116,22 @@ case "$REGIME" in
     CAPACITY_SCHEDULE=4m:16
     WORKLOAD=chains
     ;;
-  *) echo "regime must be steady, changing, scaleout, chains, smoke, scaleout-smoke or chains-smoke" >&2; exit 2 ;;
+  wild)
+    PHASES=warm:5m:0.5,normal:10m:1,peak:10m:3,after:10m:1.5,cool:5m:0.5
+    CAPACITY_SCHEDULE=25m:16
+    WORKLOAD=wild
+    # Fixed, so every run gets the same traffic.
+    BURSTS=6m:30s,8m40s:15s,11m20s:60s,13m10s:20s,26m30s:45s,29m:10s,32m15s:30s
+    OUTAGE=20m:60s
+    ;;
+  wild-smoke)
+    PHASES=warm:1m:0.5,peak:3m:3,cool:1m:0.5
+    CAPACITY_SCHEDULE=3m30s:16
+    WORKLOAD=wild
+    BURSTS=40s:10s
+    OUTAGE=2m:30s
+    ;;
+  *) echo "regime must be steady, changing, scaleout, chains, wild, smoke, scaleout-smoke, chains-smoke or wild-smoke" >&2; exit 2 ;;
 esac
 for tool in fly jq base64; do
   command -v "$tool" >/dev/null || { echo "run.sh needs $tool" >&2; exit 2; }
@@ -112,6 +142,11 @@ mkdir -p "$OUT"
 CLIENTS="$REGION:big:20 iad:medium:10,small-1:2.5 dfw:small-2:2.5,small-3:2.5 lhr:small-4:2.5"
 if [ "$WORKLOAD" = chains ]; then
   CLIENTS="$REGION:big:16 $REGION:near-polite:4 $REGION:near-aggr:4:aggressive lhr:far-polite:4 lhr:far-aggr:4:aggressive syd:vfar-polite:4 syd:vfar-aggr:4:aggressive"
+fi
+if [ "$WORKLOAD" = wild ]; then
+  CLIENTS="$REGION:L1:3:polite:40 $REGION:s1:1:polite:10,s2:1:nojitter:10,s3:1:aggressive:10,s4:1:stack:10
+lhr:L2:3:nojitter:40 lhr:s5:1:polite:10,s6:1:nojitter:10,s7:1:aggressive:10,s8:1:stack:10
+syd:L3:3:stack:40 syd:s9:1:polite:10,s10:1:nojitter:10,s11:1:aggressive:10,s12:1:stack:10"
 fi
 TENANT_RPS=20 # per-tenant limit in Envoy: half the starting capacity
 # A client machine's name: its region and first tenant, e.g. ord-big.
@@ -191,6 +226,23 @@ for spec in $EXTRA_BACKENDS; do
   BACKENDS="$BACKENDS $(host "${spec%%:*}")"
 done
 
+# The microservices, bottom first so each knows the hosts it calls. The
+# bottom ones learn the front door from the run's settings.
+API=""
+if [ "$WORKLOAD" = wild ]; then
+  echo "== services"
+  svc() {
+    run_machine "svc-$1" "$IMAGE" -r "$REGION" --vm-size shared-cpu-2x --vm-memory 1024 \
+      --restart on-failure --detach -e ROLE=service -e NAME="$1" -e TIMEOUT="$2" -e DOWNSTREAM="$3" \
+      -e CONFIG_URL="http://$BACKEND:8080/config" >/dev/null
+  }
+  svc inventory 5s ""
+  svc payments 5s ""
+  svc orders 8s "http://$(host svc-inventory):8080,http://$(host svc-payments):8080"
+  svc api 10s "http://$(host svc-orders):8080"
+  API="http://$(host svc-api):8080"
+fi
+
 # Clients start now and wait for the run's shared settings, which the backend
 # serves once every machine is up: updating a machine in a far region can
 # take minutes, starting one takes seconds.
@@ -253,9 +305,12 @@ else
       printf 'defaults:\n  rps: 2\n  max_concurrent: 1\nupstreams:\n'
       printf '  "%s:8080":\n    rps: %s\n    max_concurrent: 32\n' "$BACKEND" "$GLOBAL_RPS"
     fi
-    for spec in $CLIENTS; do
-      printf '  "%s:8081":\n    rps: 1000\n    max_concurrent: 64\n' "$(host "client-$(cname "$spec")")"
-    done
+    # Webhooks to the clients (the services wait on /proxy instead).
+    if [ "$WORKLOAD" != wild ]; then
+      for spec in $CLIENTS; do
+        printf '  "%s:8081":\n    rps: 1000\n    max_concurrent: 64\n' "$(host "client-$(cname "$spec")")"
+      done
+    fi
   } > "$cfg"
   anonymize "$cfg" > "$OUT/aquifer.yaml"
   run_machine aquifer "$IMAGE" -r "$REGION" --vm-size performance-1x --vm-memory 2048 \
@@ -301,20 +356,25 @@ START_AT=$(($(date +%s) + 60))
 config=$(jq -nc --arg mode "$MODE" --arg target "$FRONT" --arg backend "http://$BACKEND:8080/work" \
   --arg phases "$PHASES" --arg start "$START_AT" --arg report "http://$BACKEND:8080/report" \
   --arg pool "$POOL" --arg register "$REGISTER_URL" --arg workload "$WORKLOAD" \
+  --arg api "$API" --arg bursts "$BURSTS" --arg outage "$OUTAGE" \
   '{MODE: $mode, TARGET: $target, BACKEND_URL: $backend, PHASES: $phases, START_AT: $start, REPORT_URL: $report}
    + (if $pool == "" then {} else {POOL: $pool, REGISTER_URL: $register} end)
-   + (if $workload == "chains" then {WORKLOAD: "chains", MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", DRAIN: "60m"} else {} end)')
+   + (if $workload == "chains" then {WORKLOAD: "chains", MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", DRAIN: "60m"} else {} end)
+   + (if $workload == "wild" then {WORKLOAD: "wild", TARGET: $api, FRONT_URL: $target, BURSTS: $bursts, OUTAGE: $outage,
+        MAX_ATTEMPTS: "0", BACKOFF_MAX: "60s", DEADLINE_SHARE: "0", TIMEOUT: "15s", DRAIN: "60m"} else {} end)')
 retry on backend "wget -qO- --header Content-Type:application/json --post-data '$config' http://localhost:8080/config" >/dev/null ||
   fail "could not publish the run's settings"
 echo "== load begins at $(date -u -d "@$START_AT" +%TZ 2>/dev/null || date -u -r "$START_AT" +%TZ)"
 
 echo "== waiting for the clients' reports"
 i=0
-until [ "$(on backend "ls /out/clients" | grep -c json)" -ge "$want" ]; do
+until [ "$(on backend "ls /out/clients" | grep -v '^svc-' | grep -c json)" -ge "$want" ]; do
   i=$((i + 1))
   [ "$i" -gt 240 ] && fail "clients did not report within 2 hours"
   sleep 30
 done
+# The services report every 10 s; let them send their last counts.
+[ "$WORKLOAD" = wild ] && sleep 20
 
 echo "== copying results to $OUT"
 if [ "$MODE" != aquifer ]; then
@@ -363,6 +423,8 @@ fly machine list -a "$APP" --json | jq '[.[] | {id, name, region, image: .config
   echo "clients=$CLIENTS"
   echo "phases=$PHASES"
   echo "workload=$WORKLOAD"
+  echo "bursts=$BURSTS"
+  echo "outage=$OUTAGE"
   echo "capacity_schedule=$CAPACITY_SCHEDULE"
   echo "extra_backends=$EXTRA_BACKENDS"
   echo "global_rps=$GLOBAL_RPS"

@@ -10,7 +10,7 @@
 // 2 s target; those count as late if the answer arrives after it. The job
 // still runs to its normal end either way (unless ENFORCE_DEADLINE=1).
 //
-// Two workloads:
+// Three workloads:
 //
 //	jobs    (default) independent jobs arriving at each tenant's rate,
 //	        whatever happened to the earlier ones.
@@ -22,6 +22,14 @@
 //	        lane. Lanes per tenant: rate x phase multiplier x CHAIN_EVERY
 //	        / 4, rounded up, so with no contention the offered load is the
 //	        same as in the jobs workload.
+//	wild    each tenant runs WORKERS workers (the tenant's fourth field).
+//	        A worker sends one request to the api service (TARGET/req),
+//	        retries it until it succeeds, and only then sends the next; it
+//	        starts requests at random at its share of the tenant's rate, or
+//	        straight after the last one if that took longer. The front door
+//	        sits further down, behind the services (cmd/service), so MODE
+//	        doesn't change what the client does. During BURSTS the load is
+//	        at least BURST_MULT.
 //
 // Configuration (environment):
 //
@@ -32,14 +40,22 @@
 //	POOL            send to this Aquifer pool instead of BACKEND_URL (aquifer mode)
 //	PUBLIC_URL      this client's base URL for Aquifer's webhooks
 //	NAME            name for the report, e.g. the region
-//	TENANTS         name:rate[:style] at 1x load, e.g. "big:20,small-1:1:aggressive".
-//	                Styles: polite (default) backs off exponentially with
-//	                full jitter and honors Retry-After; aggressive retries
-//	                every AGGRESSIVE_DELAY and ignores Retry-After.
-//	WORKLOAD        jobs | chains (default jobs)
+//	TENANTS         name:rate[:style[:workers]] at 1x load, e.g.
+//	                "big:20,small-1:1:aggressive". Styles: polite (default)
+//	                backs off exponentially with full jitter and honors
+//	                Retry-After; nojitter backs off exponentially without
+//	                jitter, so clients that fail together retry together;
+//	                aggressive retries every AGGRESSIVE_DELAY and ignores
+//	                Retry-After; stack (wild only) is an HTTP library's 3
+//	                quick tries inside an SDK's 3 tries, 1 s and 2 s apart,
+//	                inside the app's own polite loop. Workers: wild only
+//	                (default 10).
+//	WORKLOAD        jobs | chains | wild (default jobs)
 //	CHAIN_EVERY     how often a lane starts a chain (default 4s)
 //	AGGRESSIVE_DELAY  an aggressive tenant's retry delay (default 100ms)
 //	PHASES          name:duration:multiplier, e.g. "steady:10m:0.5,spike:5m:3"
+//	BURSTS          wild only: start:duration after START_AT, e.g. "6m:30s,8m40s:15s"
+//	BURST_MULT      the load during a burst, at least (default 4)
 //	START_AT        Unix seconds to start (all clients share it)
 //	DRAIN           how long to wait for outstanding work (default 10m)
 //	DEADLINE_SHARE  fraction of jobs with a deadline (default 0.1)
@@ -85,9 +101,10 @@ type phase struct {
 }
 
 type tenant struct {
-	name  string
-	rate  float64
-	style string
+	name    string
+	rate    float64
+	style   string
+	workers int
 }
 
 type job struct {
@@ -112,6 +129,7 @@ type tally struct {
 	Failed         map[string]int `json:"failed"`
 	Requests       int            `json:"requests"`
 	Refused        int            `json:"refused"`
+	Timeouts       int            `json:"timeouts"`
 	DeadlineJobs   int            `json:"deadline_jobs"`
 	DeadlineMet    int            `json:"deadline_met"`
 	DeadlineLate   int            `json:"deadline_late"`
@@ -134,6 +152,7 @@ type tally struct {
 
 type client struct {
 	mode, target, backendURL, publicURL string
+	workload                            string
 	enforce                             bool
 	pool                                string
 	maxAttempts                         int
@@ -195,11 +214,12 @@ func main() {
 		c.styles[t.name] = t.style
 	}
 	workload := envStr("WORKLOAD", "jobs")
-	if workload != "jobs" && workload != "chains" {
-		log.Fatalf("WORKLOAD must be jobs or chains, got %q", workload)
+	if workload != "jobs" && workload != "chains" && workload != "wild" {
+		log.Fatalf("WORKLOAD must be jobs, chains or wild, got %q", workload)
 	}
+	c.workload = workload
 
-	if c.mode == "aquifer" {
+	if c.mode == "aquifer" && workload != "wild" {
 		mux := http.NewServeMux()
 		mux.HandleFunc("POST /done", c.webhook)
 		go func() { log.Fatal(http.ListenAndServe(envStr("LISTEN", ":8081"), mux)) }()
@@ -239,8 +259,11 @@ func main() {
 	if workload == "chains" {
 		c.chains(name, tenants, phases, envDur("CHAIN_EVERY", 4*time.Second), &seq, &wg)
 	}
+	if workload == "wild" {
+		c.wild(name, tenants, phases, parseBursts(os.Getenv("BURSTS")), envFloat("BURST_MULT", 4), &seq, &wg)
+	}
 	for _, p := range phases {
-		if workload == "chains" {
+		if workload != "jobs" {
 			break
 		}
 		log.Printf("phase %s: %.2fx for %s", p.name, p.mult, p.dur)
@@ -445,13 +468,160 @@ func (c *client) chain(name, tenant, phase string, start time.Time, seq *atomic.
 	c.mu.Unlock()
 }
 
+type burst struct{ at, dur time.Duration }
+
+// wild starts each tenant's workers and returns once the last phase is over;
+// wg tracks the workers still running. A worker's requests start at random
+// at its share of the tenant's rate (in a burst, at least burstMult times
+// the base rate), or straight after the last one if that took longer.
+func (c *client) wild(name string, tenants []tenant, phases []phase, bursts []burst, burstMult float64, seq *atomic.Int64, wg *sync.WaitGroup) {
+	start := time.Now()
+	type window struct {
+		p   phase
+		end time.Duration
+	}
+	var ws []window
+	var at time.Duration
+	for _, p := range phases {
+		at += p.dur
+		ws = append(ws, window{p, at})
+	}
+	end := start.Add(at)
+	phaseAt := func(now time.Time) (phase, float64, bool) {
+		since := now.Sub(start)
+		for _, w := range ws {
+			if since < w.end {
+				mult := w.p.mult
+				for _, b := range bursts {
+					if since >= b.at && since < b.at+b.dur {
+						mult = max(mult, burstMult)
+					}
+				}
+				return w.p, mult, true
+			}
+		}
+		return phase{}, 0, false
+	}
+	for _, t := range tenants {
+		for range t.workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				next := time.Now()
+				for {
+					time.Sleep(time.Until(next))
+					now := time.Now()
+					p, mult, ok := phaseAt(now)
+					if !ok {
+						return
+					}
+					if mult <= 0 {
+						next = now.Add(time.Second)
+						continue
+					}
+					// The worker's share of the tenant's rate, as random arrivals.
+					rate := t.rate * mult / float64(t.workers)
+					next = now.Add(time.Duration(rand.ExpFloat64() / rate * float64(time.Second)))
+					j := &job{id: fmt.Sprintf("%s-%s-%d", name, t.name, seq.Add(1)), tenant: t.name, phase: p.name, created: now, done: make(chan result, 1)}
+					c.mu.Lock()
+					c.tallies[t.name].Offered++
+					c.mu.Unlock()
+					c.open.Add(1)
+					c.run(j)
+					c.open.Add(-1)
+				}
+			}()
+		}
+	}
+	time.Sleep(time.Until(end))
+}
+
+// viaServices sends a request to the api service until it succeeds, in the
+// tenant's retry style. Every try carries the same request ID.
+func (c *client) viaServices(j *job) result {
+	first := true
+	try := func() (bool, time.Duration) {
+		status, retryAfter, err := c.post(j, c.target+"/req", nil, c.timeout)
+		if first {
+			c.firstAnswer(j)
+			first = false
+		}
+		if err == nil && status == http.StatusOK {
+			return true, 0
+		}
+		c.mu.Lock()
+		t := c.tallies[j.tenant]
+		switch {
+		case err != nil && errorsIsTimeout(err):
+			t.Timeouts++
+		case err == nil && (status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable):
+			t.Refused++
+		}
+		c.mu.Unlock()
+		return false, retryAfter
+	}
+	for attempt := 1; ; attempt++ {
+		var retryAfter time.Duration
+		if c.styles[j.tenant] == "stack" {
+			// An HTTP library's 3 quick tries, inside an SDK's 3 tries 1 s
+			// and 2 s apart, inside the app's own loop below.
+			for sdk := 1; sdk <= 3; sdk++ {
+				for lib := 1; lib <= 3; lib++ {
+					ok, ra := try()
+					if ok {
+						return result{ok: true}
+					}
+					retryAfter = ra
+					switch {
+					case sdk == 3 && lib == 3:
+					case lib == 3:
+						c.wait(j, time.Duration(sdk)*time.Second)
+					default:
+						c.wait(j, 50*time.Millisecond)
+					}
+				}
+			}
+		} else {
+			ok, ra := try()
+			if ok {
+				return result{ok: true}
+			}
+			retryAfter = ra
+		}
+		if c.maxAttempts > 0 && attempt >= c.maxAttempts {
+			return result{why: "gave_up"}
+		}
+		c.backoff(j, attempt, retryAfter)
+	}
+}
+
+func parseBursts(spec string) []burst {
+	var out []burst
+	for _, part := range strings.Split(spec, ",") {
+		at, d, ok := strings.Cut(strings.TrimSpace(part), ":")
+		if !ok {
+			continue
+		}
+		a, err1 := time.ParseDuration(at)
+		l, err2 := time.ParseDuration(d)
+		if err1 != nil || err2 != nil {
+			log.Fatalf("BURSTS: bad entry %q", part)
+		}
+		out = append(out, burst{a, l})
+	}
+	return out
+}
+
 // run carries one job to an outcome and records it, reporting whether it
 // succeeded.
 func (c *client) run(j *job) bool {
 	var res result
-	if c.mode == "envoy" {
+	switch {
+	case c.workload == "wild":
+		res = c.viaServices(j)
+	case c.mode == "envoy":
 		res = c.viaEnvoy(j)
-	} else {
+	default:
 		res = c.viaAquifer(j)
 	}
 	elapsed := float64(time.Since(j.created).Milliseconds())
@@ -657,20 +827,29 @@ func (c *client) submit(body map[string]any) (int, time.Duration, string, error)
 func (c *client) backoff(j *job, attempt int, retryAfter time.Duration) bool {
 	window := min(c.cap, time.Duration(float64(c.base)*math.Pow(2, float64(min(attempt-1, 30)))))
 	d := max(time.Duration(rand.Float64()*float64(window)), retryAfter)
-	if c.styles[j.tenant] == "aggressive" {
+	switch c.styles[j.tenant] {
+	case "aggressive":
 		d = c.aggressive
+	case "nojitter":
+		d = max(window, retryAfter)
 	}
+	if c.enforce && !j.deadline.IsZero() && time.Now().Add(d).After(j.deadline) {
+		j.attempts++
+		return false
+	}
+	c.wait(j, d)
+	return true
+}
+
+// wait sleeps d before the job's next attempt and counts it.
+func (c *client) wait(j *job, d time.Duration) {
 	j.attempts++
 	c.mu.Lock()
 	t := c.tallies[j.tenant]
 	t.MostAttempts = max(t.MostAttempts, j.attempts+1)
 	t.BackoffSeconds += d.Seconds()
 	c.mu.Unlock()
-	if c.enforce && !j.deadline.IsZero() && time.Now().Add(d).After(j.deadline) {
-		return false
-	}
 	time.Sleep(d)
-	return true
 }
 
 func (c *client) request(tenant string) {
@@ -744,18 +923,27 @@ func parseTenants(spec string) []tenant {
 	var out []tenant
 	for _, part := range strings.Split(spec, ",") {
 		f := strings.Split(strings.TrimSpace(part), ":")
-		if len(f) < 2 || len(f) > 3 {
+		if len(f) < 2 || len(f) > 4 {
 			log.Fatalf("TENANTS: bad entry %q", part)
 		}
 		r, err := strconv.ParseFloat(f[1], 64)
-		style := "polite"
-		if len(f) == 3 {
+		style, workers := "polite", 10
+		if len(f) >= 3 {
 			style = f[2]
 		}
-		if err != nil || (style != "polite" && style != "aggressive") {
+		var err2 error
+		if len(f) == 4 {
+			workers, err2 = strconv.Atoi(f[3])
+		}
+		switch style {
+		case "polite", "nojitter", "aggressive", "stack":
+		default:
+			err = fmt.Errorf("style %q", style)
+		}
+		if err != nil || err2 != nil || workers < 1 {
 			log.Fatalf("TENANTS: bad entry %q", part)
 		}
-		out = append(out, tenant{f[0], r, style})
+		out = append(out, tenant{f[0], r, style, workers})
 	}
 	return out
 }
