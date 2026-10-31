@@ -20,6 +20,9 @@
 //	AQUIFER_URL           submit through Aquifer at this base URL (C0, C); unset sends straight to Hatchet
 //	PUBLIC_URL            this driver's address as Aquifer reaches it (default http://localhost:8080)
 //	AQUIFER_MAX_RETRIES   Aquifer's retries forwarding each job to Hatchet (default 20; -1 until it succeeds)
+//	SCRAPE                "name url [regexp];..." endpoints to sample during the run into scrape.jsonl
+//	                      (a gateway's readiness or counters, Aquifer's metrics); regexp keeps matching lines
+//	SCRAPE_EVERY          sampling interval (default 2s)
 //	TRIGGER_API           send triggers here instead of HATCHET_API (a proxy in front of it, as in D);
 //	                      status polls still go to HATCHET_API
 package main
@@ -142,7 +145,7 @@ func main() {
 	// Each tenant is its own producer with its own submitters, as separate
 	// applications would be: one tenant's slow or refused submissions never
 	// hold up another tenant's documents in the driver.
-	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6),
+	r := &run{h: h, l: l, rate: rate, maxAttempts: envInt("MAX_ATTEMPTS", 6), idPrefix: fmt.Sprintf("r%x-", time.Now().Unix()),
 		queues: make(map[string]chan *doc, len(tenants))}
 	for _, t := range tenants {
 		r.queues[t.name] = make(chan *doc, 1<<20)
@@ -162,6 +165,12 @@ func main() {
 	}
 	pollCtx, stopPolling := context.WithCancel(ctx)
 	go r.pollLoop(pollCtx, envDuration("POLL_EVERY", 5*time.Second), envInt("POLLERS", 32))
+	scrapeCtx, stopScraping := context.WithCancel(context.Background())
+	scrapeDone := make(chan struct{})
+	go func() {
+		scrapeLoop(scrapeCtx, parseScrape(os.Getenv("SCRAPE")), envDuration("SCRAPE_EVERY", 2*time.Second), filepath.Join(out, "scrape.jsonl"))
+		close(scrapeDone)
+	}()
 	reportCtx, stopReporting := context.WithCancel(context.Background())
 	reportDone := make(chan struct{})
 	go func() { r.reportLoop(reportCtx, filepath.Join(out, "intervals.jsonl")); close(reportDone) }()
@@ -182,6 +191,8 @@ func main() {
 	stopPolling()
 	stopReporting()
 	<-reportDone
+	stopScraping()
+	<-scrapeDone
 
 	rep := buildReport(l, phases, start, overloadEnd)
 	b, _ := json.MarshalIndent(rep, "", "  ")
@@ -199,8 +210,12 @@ type run struct {
 	maxAttempts int
 	queues      map[string]chan *doc // per tenant
 	seq         atomic.Int64
-	phase       atomic.Value // current phase name
-	retries     atomic.Int64
+	// idPrefix makes document IDs unique to this run, so a run against a
+	// Hatchet that already holds an earlier run's documents (with workflow
+	// idempotency on, they'd collide) starts clean.
+	idPrefix string
+	phase    atomic.Value // current phase name
+	retries  atomic.Int64
 }
 
 // offerPhases generates documents for every tenant at its rate for each phase.
@@ -236,7 +251,7 @@ func (r *run) offerPhases(ctx context.Context, phases []phase) {
 				owed[i] += share * r.rate * tick.Seconds()
 				for owed[i] >= 1 {
 					owed[i]--
-					d := &doc{id: fmt.Sprintf("d%d", r.seq.Add(1)), tenant: t.name, offered: time.Now()}
+					d := &doc{id: fmt.Sprintf("%sd%d", r.idPrefix, r.seq.Add(1)), tenant: t.name, offered: time.Now()}
 					r.l.offer(d)
 					r.queues[t.name] <- d
 				}
@@ -276,6 +291,15 @@ func (r *run) submitLoop(ctx context.Context, queue <-chan *doc) {
 					r.l.accept(d.id, runID, attempt, waited, time.Now())
 					break
 				}
+			}
+			// The document can complete while its trigger is still being
+			// retried: an attempt went through but its answer was lost, and
+			// with Hatchet's idempotency on every later attempt is a
+			// collision, which Hatchet's REST API answers with a 500. The
+			// completion callback settles it; stop retrying.
+			if r.l.isFinished(d.id) {
+				r.l.noteSettled()
+				break
 			}
 			retryable, ok := err.(*errRetryable)
 			if !ok || attempt >= r.maxAttempts {

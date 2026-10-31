@@ -50,6 +50,7 @@ type ledger struct {
 	byJob      map[string]string // Aquifer job ID -> doc ID, for Aquifer's webhook
 	seenJobs   map[string]bool   // every Aquifer job ID accepted, to tell early webhooks from late ones
 	duplicates int               // completions reported more than once
+	settled    int               // documents that completed while their trigger was still being retried
 	finished   []finished        // terminal documents, for the report
 }
 
@@ -177,6 +178,24 @@ func (l *ledger) due(every time.Duration, now time.Time, limit int) []*doc {
 	return out
 }
 
+// noteSettled counts a document that completed while its trigger was still
+// being retried.
+func (l *ledger) noteSettled() {
+	l.mu.Lock()
+	l.settled++
+	l.mu.Unlock()
+}
+
+// isFinished reports whether a document already reached an outcome, for
+// example its completion callback arrived while its trigger was still being
+// retried.
+func (l *ledger) isFinished(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, open := l.open[id]
+	return !open
+}
+
 func (l *ledger) outstanding() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -187,6 +206,7 @@ func (l *ledger) outstanding() int {
 type openDoc struct {
 	tenant    string
 	offered   time.Time
+	accepted  time.Time
 	triggered time.Time
 }
 
@@ -198,7 +218,7 @@ func (l *ledger) snapshotAll() ([]finished, []openDoc) {
 	done := append([]finished(nil), l.finished...)
 	open := make([]openDoc, 0, len(l.open))
 	for _, d := range l.open {
-		open = append(open, openDoc{tenant: d.tenant, offered: d.offered, triggered: d.triggered})
+		open = append(open, openDoc{tenant: d.tenant, offered: d.offered, accepted: d.accepted, triggered: d.triggered})
 	}
 	return done, open
 }

@@ -36,7 +36,7 @@ for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name
   NAME=${APP#aqb-hatchet-}
   OUT=results/$NAME
   alive=""
-  pgrep -f "run.sh [BCD] $NAME\$" >/dev/null 2>&1 && alive=1
+  pgrep -f "run.sh [BCDE] $NAME\$" >/dev/null 2>&1 && alive=1
   machines=$(fly machine list -a "$APP" --json 2>/dev/null) || continue
   # Never act on an answer that isn't a JSON array: an unreadable list is not
   # an empty one.
@@ -85,6 +85,10 @@ for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name
       done
       [ -n "$got" ] || missing="$missing $f"
     done
+    # Optional: not every run writes these, so a failed copy keeps no app.
+    for f in scrape.jsonl duplicates.json; do
+      timeout 120 fly ssh sftp get -a "$APP" --machine "$drv" "/out/$f" "${OUT:?}/${f:?}" >/dev/null 2>&1 || rm -f "${OUT:?}/${f:?}"
+    done
     aq=$(echo "$machines" | jq -r '.[] | select(.name == "aquifer") | .id')
     if [ -n "$aq" ]; then
       timeout 60 fly ssh console -a "$APP" --machine "$aq" -C "wget -qO- http://localhost:8080/metrics" 2>/dev/null \
@@ -119,7 +123,7 @@ for APP in $(fly apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r '.[].Name
   [ "${DRY_RUN:-}" = 1 ] || timeout 120 fly logs -a "$APP" --no-tail > "$OUT/fly.log" 2>/dev/null || true
   # A run.sh still alive past the hard limit is stuck; stop it before its app goes.
   if [ -n "$alive" ]; then
-    for p in $(pgrep -f "run.sh [BCD] $NAME\$"); do act kill "$p"; done
+    for p in $(pgrep -f "run.sh [BCDE] $NAME\$"); do act kill "$p"; done
   fi
   if [ -n "$missing" ]; then
     echo "$NAME: couldn't copy$missing; app kept (destroy by hand once saved)"
