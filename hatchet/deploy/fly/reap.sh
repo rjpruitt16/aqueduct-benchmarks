@@ -35,7 +35,11 @@ act() { if [ "${DRY_RUN:-}" = 1 ]; then echo "  (dry run) $*"; else "$@"; fi; }
 # so an app kept for its results stops costing compute.
 stop_others() {
   for id in $(echo "$machines" | jq -r --arg keep "$1" '.[] | select(.state == "started" and .id != $keep) | .id'); do
-    act fly machine stop "$id" -a "$APP" >/dev/null 2>&1 || true
+    if [ "${DRY_RUN:-}" = 1 ]; then
+      echo "  (dry run) fly machine stop $id -a $APP"
+    else
+      fly machine stop "$id" -a "$APP" >/dev/null 2>&1 || true
+    fi
   done
 }
 
