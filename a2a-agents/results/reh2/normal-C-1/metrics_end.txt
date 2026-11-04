@@ -1,0 +1,76 @@
+# llm
+vllm:num_requests_running 0
+vllm:num_requests_waiting 0
+vllm:generation_tokens_total 30500
+vllm:prompt_tokens_total 33131
+mockllm_max_seqs 8
+mockllm_tokens_per_s 40
+mockllm_requests_total{step="research"} 106
+mockllm_requests_total{step="code"} 146
+
+# dbtool
+dbtool_pool_max 8
+dbtool_pool_in_use 0
+dbtool_pool_waiting 0
+dbtool_attempts_stored_total 146
+dbtool_attempts_duplicate_total 0
+dbtool_delay_ms 0
+dbtool_requests_total{route="get_issue",status="200"} 146
+dbtool_requests_total{route="post_attempt",status="200"} 146
+
+# sandbox
+sandbox_slots 4
+sandbox_slots_busy 0
+sandbox_executions_total 146
+sandbox_refused_total 0
+sandbox_repeated_executions_total 0
+
+# mockci
+ci_runners 62
+ci_queued 0
+ci_running 0
+ci_runs_total 111
+ci_runs_finished_total 111
+ci_duplicate_starts_total 0
+ci_polls_total 512
+ci_refused_total 0
+ci_flaky_total 5
+ci_queue_wait_seconds_sum 0.000
+
+# aquifer
+# HELP aquifer_node_info This node's id, as sent to backends in X-Aqueduct-Node-Id.
+# TYPE aquifer_node_info gauge
+aquifer_node_info{node_id="e820219bd39d28"} 1
+# HELP aquifer_jobs_total Jobs that reached a terminal state, by outcome (completed, failed, expired).
+# TYPE aquifer_jobs_total counter
+# HELP aquifer_dispatch_attempts_total Attempts at a target API, retries included, by result (2xx, 4xx, 429, 5xx, error = no response).
+# TYPE aquifer_dispatch_attempts_total counter
+# HELP aquifer_admission_rejected_total Jobs refused with 429, by reason.
+# TYPE aquifer_admission_rejected_total counter
+# HELP aquifer_webhooks_total Completion webhooks that finished, by outcome (delivered, or failed after its retries).
+# TYPE aquifer_webhooks_total counter
+# HELP aquifer_queue_wait_seconds Time from submission to a job's first dispatch.
+# TYPE aquifer_queue_wait_seconds histogram
+# HELP aquifer_job_duration_seconds Time from submission to a terminal state, by outcome.
+# TYPE aquifer_job_duration_seconds histogram
+# HELP aquifer_active_queues Queues on this node with work waiting for the target API (one per tenant with account queues on).
+# TYPE aquifer_active_queues gauge
+aquifer_active_queues{target="http://127.0.0.1:18000"} 0
+aquifer_active_queues{target="http://127.0.0.1:18100"} 0
+aquifer_active_queues{target="http://127.0.0.1:18200"} 0
+aquifer_active_queues{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_backlog_jobs Jobs on this node queued or in flight for the target API.
+# TYPE aquifer_backlog_jobs gauge
+aquifer_backlog_jobs{target="http://127.0.0.1:18000"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18100"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18200"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_flow_rate_rps Sum of the active queues' current dispatch rates, after the target API's pacing headers.
+# TYPE aquifer_flow_rate_rps gauge
+aquifer_flow_rate_rps{target="http://127.0.0.1:18000"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18100"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18200"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_fairness_jain Jain's index (0-1) over queues with work waiting, by jobs each finished in about the last minute. 1 is perfectly even.
+# TYPE aquifer_fairness_jain gauge
+

@@ -1,0 +1,16 @@
+defaults:
+  rps: 2
+  max_concurrent: 1
+upstreams:
+  "127.0.0.1:18000":
+    rps: 1000
+    max_concurrent: 8
+  "127.0.0.1:18100":
+    rps: 1000
+    max_concurrent: 8
+  "127.0.0.1:18200":
+    rps: 1000
+    max_concurrent: 4
+  "127.0.0.1:18500":
+    rps: 1000
+    max_concurrent: 62

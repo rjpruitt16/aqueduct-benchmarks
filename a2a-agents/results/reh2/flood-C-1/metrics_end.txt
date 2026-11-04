@@ -1,0 +1,157 @@
+# llm
+vllm:num_requests_running 0
+vllm:num_requests_waiting 0
+vllm:generation_tokens_total 65600
+vllm:prompt_tokens_total 71375
+mockllm_max_seqs 8
+mockllm_tokens_per_s 40
+mockllm_requests_total{step="research"} 228
+mockllm_requests_total{step="code"} 314
+
+# dbtool
+dbtool_pool_max 8
+dbtool_pool_in_use 0
+dbtool_pool_waiting 0
+dbtool_attempts_stored_total 314
+dbtool_attempts_duplicate_total 0
+dbtool_delay_ms 0
+dbtool_requests_total{route="get_issue",status="200"} 314
+dbtool_requests_total{route="post_attempt",status="200"} 314
+
+# sandbox
+sandbox_slots 4
+sandbox_slots_busy 0
+sandbox_executions_total 314
+sandbox_refused_total 0
+sandbox_repeated_executions_total 0
+
+# mockci
+ci_runners 62
+ci_queued 0
+ci_running 0
+ci_runs_total 237
+ci_runs_finished_total 237
+ci_duplicate_starts_total 0
+ci_polls_total 897
+ci_refused_total 28
+ci_flaky_total 9
+ci_queue_wait_seconds_sum 54.434
+
+# aquifer
+# HELP aquifer_node_info This node's id, as sent to backends in X-Aqueduct-Node-Id.
+# TYPE aquifer_node_info gauge
+aquifer_node_info{node_id="e820219bd39d28"} 1
+# HELP aquifer_jobs_total Jobs that reached a terminal state, by outcome (completed, failed, expired).
+# TYPE aquifer_jobs_total counter
+aquifer_jobs_total{target="http://127.0.0.1:18000",outcome="completed"} 533
+aquifer_jobs_total{target="http://127.0.0.1:18500",outcome="completed"} 276
+# HELP aquifer_dispatch_attempts_total Attempts at a target API, retries included, by result (2xx, 4xx, 429, 5xx, error = no response).
+# TYPE aquifer_dispatch_attempts_total counter
+aquifer_dispatch_attempts_total{target="http://127.0.0.1:18000",status_class="2xx"} 533
+aquifer_dispatch_attempts_total{target="http://127.0.0.1:18500",status_class="2xx"} 276
+aquifer_dispatch_attempts_total{target="http://127.0.0.1:18500",status_class="429"} 27
+# HELP aquifer_admission_rejected_total Jobs refused with 429, by reason.
+# TYPE aquifer_admission_rejected_total counter
+# HELP aquifer_webhooks_total Completion webhooks that finished, by outcome (delivered, or failed after its retries).
+# TYPE aquifer_webhooks_total counter
+# HELP aquifer_queue_wait_seconds Time from submission to a job's first dispatch.
+# TYPE aquifer_queue_wait_seconds histogram
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.005"} 0
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.01"} 0
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.025"} 0
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.05"} 0
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.1"} 1
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.25"} 2
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="0.5"} 20
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="1"} 51
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="2.5"} 115
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="5"} 125
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="10"} 150
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="30"} 267
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="60"} 533
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="120"} 533
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="300"} 533
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="600"} 533
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18000",le="+Inf"} 533
+aquifer_queue_wait_seconds_sum{target="http://127.0.0.1:18000"} 14311.789387137997
+aquifer_queue_wait_seconds_count{target="http://127.0.0.1:18000"} 533
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.005"} 10
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.01"} 10
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.025"} 11
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.05"} 12
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.1"} 13
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.25"} 14
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="0.5"} 15
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="1"} 18
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="2.5"} 38
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="5"} 88
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="10"} 160
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="30"} 276
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="60"} 276
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="120"} 276
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="300"} 276
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="600"} 276
+aquifer_queue_wait_seconds_bucket{target="http://127.0.0.1:18500",le="+Inf"} 276
+aquifer_queue_wait_seconds_sum{target="http://127.0.0.1:18500"} 2199.5104538339997
+aquifer_queue_wait_seconds_count{target="http://127.0.0.1:18500"} 276
+# HELP aquifer_job_duration_seconds Time from submission to a terminal state, by outcome.
+# TYPE aquifer_job_duration_seconds histogram
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.005"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.01"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.025"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.05"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.1"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.25"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="0.5"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="1"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="2.5"} 0
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="5"} 92
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="10"} 132
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="30"} 246
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="60"} 533
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="120"} 533
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="300"} 533
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="600"} 533
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18000",outcome="completed",le="+Inf"} 533
+aquifer_job_duration_seconds_sum{target="http://127.0.0.1:18000",outcome="completed"} 15946.709699175011
+aquifer_job_duration_seconds_count{target="http://127.0.0.1:18000",outcome="completed"} 533
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.005"} 3
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.01"} 3
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.025"} 4
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.05"} 4
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.1"} 5
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.25"} 6
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="0.5"} 7
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="1"} 9
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="2.5"} 34
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="5"} 84
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="10"} 154
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="30"} 276
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="60"} 276
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="120"} 276
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="300"} 276
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="600"} 276
+aquifer_job_duration_seconds_bucket{target="http://127.0.0.1:18500",outcome="completed",le="+Inf"} 276
+aquifer_job_duration_seconds_sum{target="http://127.0.0.1:18500",outcome="completed"} 2385.9788651759977
+aquifer_job_duration_seconds_count{target="http://127.0.0.1:18500",outcome="completed"} 276
+# HELP aquifer_active_queues Queues on this node with work waiting for the target API (one per tenant with account queues on).
+# TYPE aquifer_active_queues gauge
+aquifer_active_queues{target="http://127.0.0.1:18000"} 0
+aquifer_active_queues{target="http://127.0.0.1:18100"} 0
+aquifer_active_queues{target="http://127.0.0.1:18200"} 0
+aquifer_active_queues{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_backlog_jobs Jobs on this node queued or in flight for the target API.
+# TYPE aquifer_backlog_jobs gauge
+aquifer_backlog_jobs{target="http://127.0.0.1:18000"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18100"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18200"} 0
+aquifer_backlog_jobs{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_flow_rate_rps Sum of the active queues' current dispatch rates, after the target API's pacing headers.
+# TYPE aquifer_flow_rate_rps gauge
+aquifer_flow_rate_rps{target="http://127.0.0.1:18000"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18100"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18200"} 0
+aquifer_flow_rate_rps{target="http://127.0.0.1:18500"} 0
+# HELP aquifer_fairness_jain Jain's index (0-1) over queues with work waiting, by jobs each finished in about the last minute. 1 is perfectly even.
+# TYPE aquifer_fairness_jain gauge
+

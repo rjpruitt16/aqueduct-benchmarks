@@ -64,6 +64,10 @@ def run_row(name, cfg, scen, rep):
     reqs = {}
     backoff = 0
     for e in ledger:
+        # Ledgers from before the driver fix record workflows cut off by the
+        # drain as errors; they were still running.
+        if e["outcome"] == "error" and "context canceled" in (e.get("error") or ""):
+            e["outcome"] = "unfinished"
         out[e["outcome"]] = out.get(e["outcome"], 0) + 1
         if e["outcome"] == "completed":
             lat.setdefault("all", []).append(e["end_ms"] / 1000)

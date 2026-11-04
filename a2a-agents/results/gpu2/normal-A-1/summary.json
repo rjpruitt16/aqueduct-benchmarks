@@ -1,0 +1,63 @@
+{
+  "outcomes": {
+    "completed": 714
+  },
+  "p50_ms": 52676,
+  "p95_ms": 68077,
+  "p99_ms": 103767,
+  "resource_requests_per_completed_workflow": 10.73,
+  "tenants": {
+    "big": {
+      "submitted": 429,
+      "outcomes": {
+        "completed": 429
+      },
+      "p50_ms": 52951,
+      "p95_ms": 73943,
+      "p99_ms": 103836,
+      "ack_p99_ms": 2,
+      "requests_by_resource": {
+        "ci": 2505,
+        "db": 858,
+        "llm": 858,
+        "sandbox": 429
+      },
+      "backoff_ms": 0
+    },
+    "small-1": {
+      "submitted": 143,
+      "outcomes": {
+        "completed": 143
+      },
+      "p50_ms": 43977,
+      "p95_ms": 68013,
+      "p99_ms": 103661,
+      "ack_p99_ms": 2,
+      "requests_by_resource": {
+        "ci": 791,
+        "db": 286,
+        "llm": 286,
+        "sandbox": 143
+      },
+      "backoff_ms": 0
+    },
+    "small-2": {
+      "submitted": 142,
+      "outcomes": {
+        "completed": 142
+      },
+      "p50_ms": 48023,
+      "p95_ms": 68017,
+      "p99_ms": 102682,
+      "ack_p99_ms": 2,
+      "requests_by_resource": {
+        "ci": 795,
+        "db": 284,
+        "llm": 284,
+        "sandbox": 142
+      },
+      "backoff_ms": 0
+    }
+  },
+  "workflows": 714
+}
