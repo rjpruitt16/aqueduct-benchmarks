@@ -17,3 +17,16 @@ type Completion struct {
 	DocID string `json:"doc_id"`
 	RunID string `json:"run_id"`
 }
+
+// EventWorkflowName is the workflow that handles one ingested event; it runs
+// on EventKey.
+const (
+	EventWorkflowName = "event-ingest"
+	EventKey          = "order.created"
+)
+
+// Event is one ingested event: an order from one source (a shop).
+type Event struct {
+	ID     string `json:"id"`
+	Source string `json:"source"`
+}

@@ -11,6 +11,11 @@
 //	TENANT_MAX_RUNS   B only: concurrent documents per tenant (default 50).
 //	SCHEDULE_TIMEOUT  B only: how long a task may wait to start (default 1h).
 //	CALLBACK_URL      where the index step POSTs completions.
+//	WORKLOAD          documents (default) or events: one task per event on
+//	                  pipeline.EventKey, round-robin by input.source in B,
+//	                  counted at COUNT_LISTEN (default :8091) /count.
+//	RATE_LIMIT        events only: a Hatchet rate limit (per second) on the
+//	                  task, standing in for a rate-limited downstream API.
 //	IDEMPOTENCY_TTL   turn on Hatchet workflow idempotency keyed by input.doc_id for this long (off by default).
 //
 // Plus the Hatchet client's own variables (HATCHET_CLIENT_TOKEN, ...).
@@ -19,15 +24,18 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/hatchet-dev/hatchet/pkg/cmdutils"
 	hatchet "github.com/hatchet-dev/hatchet/sdks/go"
+	"github.com/hatchet-dev/hatchet/sdks/go/features"
 
 	"github.com/rjpruitt16/aqueduct-benchmarks/hatchet/internal/pipeline"
 )
@@ -49,6 +57,10 @@ func main() {
 	client, err := hatchet.NewClient()
 	if err != nil {
 		log.Fatalf("hatchet client: %v", err)
+	}
+	if env("WORKLOAD", "documents") == "events" {
+		runEvents(client, config, step)
+		return
 	}
 
 	var wfOpts []hatchet.WorkflowOption
@@ -138,4 +150,64 @@ func envInt(name string, fallback int) int {
 		return v
 	}
 	return fallback
+}
+
+// runEvents runs the event-ingestion workflow: one task per event that
+// sleeps for step, and a completion counter for the backlog tool.
+func runEvents(client *hatchet.Client, config string, step time.Duration) {
+	opts := []hatchet.WorkflowOption{hatchet.WithWorkflowEvents(pipeline.EventKey)}
+	var taskOpts []hatchet.TaskOption
+	if config != "A" {
+		maxRuns := int32(envInt("TENANT_MAX_RUNS", 50))
+		strategy := hatchet.GroupRoundRobin
+		opts = append(opts, hatchet.WithWorkflowConcurrency(hatchet.Concurrency{
+			Expression:    "input.source",
+			MaxRuns:       &maxRuns,
+			LimitStrategy: &strategy,
+		}))
+		timeout, err := time.ParseDuration(env("SCHEDULE_TIMEOUT", "24h"))
+		if err != nil {
+			log.Fatalf("SCHEDULE_TIMEOUT: %v", err)
+		}
+		taskOpts = append(taskOpts, hatchet.WithScheduleTimeout(timeout))
+	}
+	if limit := envInt("RATE_LIMIT", 0); limit > 0 {
+		if err := client.RateLimits().Upsert(features.CreateRatelimitOpts{
+			Key: "downstream", Limit: limit, Duration: hatchet.Second,
+		}); err != nil {
+			log.Fatalf("rate limit: %v", err)
+		}
+		one := 1
+		taskOpts = append(taskOpts, hatchet.WithRateLimits(&hatchet.RateLimit{Key: "downstream", Units: &one}))
+		log.Printf("event worker: downstream rate limit %d/s", limit)
+	}
+	var done atomic.Int64
+	wf := client.NewWorkflow(pipeline.EventWorkflowName, opts...)
+	wf.NewTask("handle", func(ctx hatchet.Context, ev pipeline.Event) (stepOutput, error) {
+		time.Sleep(step)
+		done.Add(1)
+		return stepOutput{Step: "handle"}, nil
+	}, taskOpts...)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /count", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, done.Load())
+	})
+	go func() {
+		if err := http.ListenAndServe(env("COUNT_LISTEN", ":8091"), mux); err != nil {
+			log.Fatalf("count server: %v", err)
+		}
+	}()
+
+	worker, err := client.NewWorker("event-worker",
+		hatchet.WithWorkflows(wf), hatchet.WithSlots(envInt("SLOTS", 200)))
+	if err != nil {
+		log.Fatalf("worker: %v", err)
+	}
+	ctx, cancel := cmdutils.NewInterruptContext()
+	defer cancel()
+	log.Printf("event worker: config %s, %s per event", config, step)
+	if err := worker.StartBlocking(ctx); err != nil && ctx.Err() == nil {
+		log.Fatalf("worker stopped: %v", err)
+	}
 }

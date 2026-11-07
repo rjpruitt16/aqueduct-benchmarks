@@ -1,6 +1,14 @@
 # Event ingestion: design for review
 
-Status: proposal, nothing built. Needs sign-off before code or spend.
+Status: **closed after step 0; the theory didn't hold.** Run locally 2026-11-07 (Hatchet v0.110.8, Docker on a 14-core Mac). The rest of the design below was not built.
+
+## Result
+
+- **Backlog depth costs nothing.** 500,000 events queued with no worker, then drained with 200 slots and 200 sources: Postgres used 3.97 CPU-seconds per 1,000 events with 500k waiting and 5.23 near the end, and throughput fell from 922 to 546 events/s *as the backlog shrank*. Cost tracked the events already completed (Hatchet's growing history), not the events waiting. 7 sources against 200 made no difference (100k runs: 3.5–4.4 against 3.6–4.0).
+- **A blocked backlog costs nothing either.** 400 events/s offered for 20 minutes against a Hatchet rate limit of 200/s, so 242,000 events stuck behind it by the end: Postgres stayed at 1.3–1.9 cores and the engine at about 1.07 throughout, with no trend as the backlog grew from 24k to 227k. A control with no backlog (200/s offered) used about 0.3 cores less of each, which the doubled intake accounts for. Completions twice dipped below the limit (167 and 170/s) in the blocked run, never in the control; too rare to claim anything.
+- Hatchet reads only what it can start from the front of its queue, so neither a deep nor a blocked backlog adds scheduling cost at these sizes. The only slowdown seen is from total volume processed, which Aquifer in front would not change.
+
+Tools: `cmd/backlog` (`push`, `watch`, `sustain`) and the worker's `WORKLOAD=events` (`RATE_LIMIT` for a rate-limited downstream). Step 0 commands are in the notes below.
 
 ## The question
 
