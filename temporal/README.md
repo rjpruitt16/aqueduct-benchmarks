@@ -20,6 +20,24 @@ Reading it:
 - Aquifer's latency is longer because it includes the starts the SDK lost: the last of the burst started about 9 minutes after it was offered. That is the trade: late but certain, instead of on time or never.
 - In the Aquifer run 2,000 of the 108,000 offered reused IDs from a smoke run just before it (a harness bug, since fixed: IDs are now unique per run). Aquifer and Temporal both treated them as duplicates, so they're left out of the counts above; Temporal holds exactly 2,000 + 106,000 such workflows.
 
-Not yet measured: workers running the workflows (their calls count toward the same limit), more tenants and fairness between them, a real cluster, and how the SDK compares with a caller that retries for longer.
+## Follow-up: a caller that keeps retrying, and workers
 
-Run: `temporal server start-dev --headless --http-port 7243 --dynamic-config-value frontend.namespaceRPS=200 --dynamic-config-value frontend.globalNamespaceRPS=200`, then `RATE=600 DURATION=3m go run ./cmd/burst` (SDK), or with `AQUIFER_URL=http://localhost:8085` (Aquifer).
+Same burst (600/s for 3 minutes), same 200/s namespace. "Retrying" means the caller retries after the SDK gives up, with jittered backoff up to 30 s, for up to `RETRY_FOR` after the offer. The worker (`cmd/worker`) runs each workflow with one no-op activity: about 3 frontend calls per workflow, plus polls, all under the same namespace limit.
+
+| | A: SDK + retrying caller, no worker | C: SDK + retrying caller, worker | D: Aquifer at 190/s, worker |
+|---|---|---|---|
+| Started | 108,000 (all) | 108,000 (all) | 108,000 (all) |
+| Lost | 0 | 0 | 0 |
+| Calls to Temporal per start | 5.37 (448,351 refused) | 5.24 (428,224 refused) | **1.0** (0 refused) |
+| Start latency p50 / p99 | 180 s / 482 s | 183 s / 517 s | 198 s / 560 s |
+| Workflows the worker finished while starts were draining (~12 min) | – | **77** | **1,321** |
+
+Reading it:
+
+- **A caller that retries long enough loses nothing either.** The 44% loss in the first table is the SDK's default give-up, not something only Aquifer avoids. Aquifer's remaining edge on starts is one call each instead of about five, and holding the overflow durably instead of in the callers' memory.
+- **Workers starve under any start burst that fills the namespace limit.** Starts and the worker's own calls share the 200/s. With retrying callers the worker finished 77 workflows in 12 minutes; behind Aquifer it finished 1,321, about 17 times more but still under 2 a second, because Aquifer was configured at 190/s and left the worker about 10/s. In both, about 105,000 started workflows were still waiting to run when the starts finished.
+- So the useful setting is not "pace just under the limit" but "pace starts at the limit minus what the workers need". Aquifer can do that from config or from a rate Temporal advertises; Temporal doesn't advertise one, so it's config. A caller-side token bucket could do the same, without durability.
+
+Not yet measured: Aquifer paced with headroom for workers (for example 120/s) against a retrying caller with the same client-side limit, more tenants and fairness between them, and a real cluster.
+
+Run: `temporal server start-dev --headless --http-port 7243 --dynamic-config-value frontend.namespaceRPS=200 --dynamic-config-value frontend.globalNamespaceRPS=200`, then `RATE=600 DURATION=3m go run ./cmd/burst` (SDK), or with `AQUIFER_URL=http://localhost:8085` (Aquifer). Add `RETRY_FOR=15m` for a retrying caller, and run `go run ./cmd/worker` alongside for workers.

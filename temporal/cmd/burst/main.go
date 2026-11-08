@@ -8,7 +8,8 @@
 //
 // Environment: TEMPORAL_ADDRESS (default localhost:7233), RATE (starts/s,
 // default 600), DURATION (default 3m), CALLERS (concurrent callers, default
-// 2000), OUT (summary JSON, default burst.json).
+// 2000), OUT (summary JSON, default burst.json), RETRY_FOR (keep retrying
+// after the SDK gives up, until this long after the offer; default off).
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"sort"
 	"strconv"
@@ -43,6 +45,8 @@ func main() {
 	rate := envInt("RATE", 600)
 	duration := envDuration("DURATION", 3*time.Minute)
 	callers := envInt("CALLERS", 2000)
+	retryFor := envDuration("RETRY_FOR", 0)
+	var callerRetries atomic.Int64
 
 	var attempts, exhausted atomic.Int64
 	count := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
@@ -77,8 +81,16 @@ func main() {
 			defer wg.Done()
 			for offered := range offers {
 				id := fmt.Sprintf("burst-%s-%d", runID, seq.Add(1))
-				_, err := c.ExecuteWorkflow(context.Background(),
-					client.StartWorkflowOptions{ID: id, TaskQueue: "bench"}, "Noop")
+				opts := client.StartWorkflowOptions{ID: id, TaskQueue: "bench"}
+				_, err := c.ExecuteWorkflow(context.Background(), opts, "Noop")
+				// RETRY_FOR: the caller keeps going after the SDK gives up, with
+				// jittered backoff, until that long after the offer. Retrying
+				// is safe: a second start of a running ID returns that run.
+				for backoff := time.Second; err != nil && retryFor > 0 && time.Since(offered) < retryFor; backoff = min(2*backoff, 30*time.Second) {
+					callerRetries.Add(1)
+					time.Sleep(backoff/2 + rand.N(backoff/2))
+					_, err = c.ExecuteWorkflow(context.Background(), opts, "Noop")
+				}
 				r := result{latency: time.Since(offered)}
 				if err != nil {
 					r.err = status.Code(err).String()
@@ -135,7 +147,8 @@ func main() {
 		"start_attempts": attempts.Load(), "resource_exhausted": exhausted.Load(),
 		"attempts_per_offer": float64(attempts.Load()) / float64(offered),
 		"latency_p50_s":      pct(0.5), "latency_p99_s": pct(0.99), "latency_max_ok_s": slowestOK.Seconds(),
-		"wall_s": time.Since(start).Seconds(),
+		"wall_s":      time.Since(start).Seconds(),
+		"retry_for_s": retryFor.Seconds(), "caller_retries": callerRetries.Load(),
 	}
 	b, _ := json.MarshalIndent(summary, "", "  ")
 	os.WriteFile(env("OUT", "burst.json"), b, 0o644)
