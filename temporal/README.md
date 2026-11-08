@@ -38,6 +38,24 @@ Reading it:
 - **Workers starve under any start burst that fills the namespace limit.** Starts and the worker's own calls share the 200/s. With retrying callers the worker finished 77 workflows in 12 minutes; behind Aquifer it finished 1,321, about 17 times more but still under 2 a second, because Aquifer was configured at 190/s and left the worker about 10/s. In both, about 105,000 started workflows were still waiting to run when the starts finished.
 - So the useful setting is not "pace just under the limit" but "pace starts at the limit minus what the workers need". Aquifer can do that from config or from a rate Temporal advertises; Temporal doesn't advertise one, so it's config. A caller-side token bucket could do the same, without durability.
 
-Not yet measured: Aquifer paced with headroom for workers (for example 120/s) against a retrying caller with the same client-side limit, more tenants and fairness between them, and a real cluster.
+## Follow-up: the same limit on both sides (120/s)
 
-Run: `temporal server start-dev --headless --http-port 7243 --dynamic-config-value frontend.namespaceRPS=200 --dynamic-config-value frontend.globalNamespaceRPS=200`, then `RATE=600 DURATION=3m go run ./cmd/burst` (SDK), or with `AQUIFER_URL=http://localhost:8085` (Aquifer). Add `RETRY_FOR=15m` for a retrying caller, and run `go run ./cmd/worker` alongside for workers.
+Is Aquifer doing more than rate limiting? Both sides now get the same 120/s, leaving about 80/s for the worker. E is the retrying caller behind a client-side limit shared by all 2,000 callers in its process, its own retries included. F is Aquifer at 120/s. G is F with Aquifer killed (`kill -9`) 90 s into the burst and restarted 5 s later. Counts in the last row come from Temporal itself (`temporal workflow count`), not from the harness.
+
+| | E: retrying caller, limit 120/s | F: Aquifer 120/s | G: Aquifer 120/s, killed at 90 s |
+|---|---|---|---|
+| Calls to Temporal per start | 1.0001 (10 caller retries, 0 refused) | 1.0 | 1.0 |
+| Start latency p50 / p99 | 360 s / 716 s | 360 s / 776 s | 365 s / 851 s |
+| Workflows finished by the worker at 5 / 10 / 15 min | 4,974 / 9,727 / 11,008 | 4,979 / 8,242 / 8,531 | 5,118 / 7,403 / 7,627 |
+| Starts held in memory | peak 86,391 (at the end of the burst); 43,191 at 90 s | 0 (on disk) | 0 (on disk) |
+| Workflows in Temporal at the end | 108,000 of 108,000 | 108,000 of 108,000 | 107,994 of 107,994 offered |
+
+Reading it:
+
+- **A client-side limiter matches Aquifer on scheduling.** Same start rate, same latency, and one call per start on both sides. The earlier 77 vs 1,321 was pacing versus no pacing, not anything particular to Aquifer. The worker finished slightly more under E after 5 minutes; these runs share one Mac's CPU with Aquifer and its database, so treat that gap as noise-sized, not a finding.
+- **The difference is where the overflow lives.** E held up to 86,391 starts in the callers' memory; a crash of that process at 90 s would have lost 43,191. Aquifer killed at the same moment lost none: it recovered 43,180 queued jobs from disk on restart and every offered start reached Temporal. Callers retried their submissions during the 5 s it was down (120,924 intake attempts for 107,994 jobs), and none gave up.
+- So Aquifer's advantage in front of Temporal is durable, central admission: one place that holds overflow across crashes and enforces one limit for every service that starts workflows. For a single application with one Temporal client, a limiter plus retries does the scheduling job. Not tested here: several independent services sharing one namespace, each with its own limiter.
+
+(G's `temporal_attempts_by_status` reads 97,198 because Aquifer's metrics restart at zero after the kill; Temporal's own count is the one to trust. G offered 6 fewer starts than E and F because of driver timing, not loss.)
+
+Run: `temporal server start-dev --headless --http-port 7243 --dynamic-config-value frontend.namespaceRPS=200 --dynamic-config-value frontend.globalNamespaceRPS=200`, then `RATE=600 DURATION=3m go run ./cmd/burst` (SDK), or with `AQUIFER_URL=http://localhost:8085` (Aquifer). Add `RETRY_FOR=15m` for a retrying caller, `LIMIT=120` for a client-side limit, and run `go run ./cmd/worker` alongside for workers.

@@ -9,7 +9,8 @@
 // Environment: TEMPORAL_ADDRESS (default localhost:7233), RATE (starts/s,
 // default 600), DURATION (default 3m), CALLERS (concurrent callers, default
 // 2000), OUT (summary JSON, default burst.json), RETRY_FOR (keep retrying
-// after the SDK gives up, until this long after the offer; default off).
+// after the SDK gives up, until this long after the offer; default off),
+// LIMIT (client-side limit on start attempts per second; default off).
 package main
 
 import (
@@ -46,6 +47,27 @@ func main() {
 	duration := envDuration("DURATION", 3*time.Minute)
 	callers := envInt("CALLERS", 2000)
 	retryFor := envDuration("RETRY_FOR", 0)
+	// LIMIT: a client-side limit on start attempts (the caller's own
+	// retries included), shared by every caller in this process; 0 = none.
+	var tokens chan struct{}
+	if limit := envInt("LIMIT", 0); limit > 0 {
+		tokens = make(chan struct{}, max(1, limit/10))
+		go func() {
+			t := time.NewTicker(time.Second / time.Duration(limit))
+			for range t.C {
+				select {
+				case tokens <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	take := func() {
+		if tokens != nil {
+			<-tokens
+		}
+	}
+	var startedN atomic.Int64
 	var callerRetries atomic.Int64
 
 	var attempts, exhausted atomic.Int64
@@ -82,6 +104,7 @@ func main() {
 			for offered := range offers {
 				id := fmt.Sprintf("burst-%s-%d", runID, seq.Add(1))
 				opts := client.StartWorkflowOptions{ID: id, TaskQueue: "bench"}
+				take()
 				_, err := c.ExecuteWorkflow(context.Background(), opts, "Noop")
 				// RETRY_FOR: the caller keeps going after the SDK gives up, with
 				// jittered backoff, until that long after the offer. Retrying
@@ -89,7 +112,11 @@ func main() {
 				for backoff := time.Second; err != nil && retryFor > 0 && time.Since(offered) < retryFor; backoff = min(2*backoff, 30*time.Second) {
 					callerRetries.Add(1)
 					time.Sleep(backoff/2 + rand.N(backoff/2))
+					take()
 					_, err = c.ExecuteWorkflow(context.Background(), opts, "Noop")
+				}
+				if err == nil {
+					startedN.Add(1)
 				}
 				r := result{latency: time.Since(offered)}
 				if err != nil {
@@ -104,6 +131,16 @@ func main() {
 	}
 
 	start := time.Now()
+	var offeredN atomic.Int64
+	go func() {
+		// Held in memory = offered but not yet started: what a crash of
+		// this process would lose.
+		for range time.Tick(10 * time.Second) {
+			o, st := offeredN.Load(), startedN.Load()
+			log.Printf("t=%.0fs offered %d started %d held_in_memory %d attempts %d refused %d",
+				time.Since(start).Seconds(), o, st, o-st, attempts.Load(), exhausted.Load())
+		}
+	}()
 	tick := time.NewTicker(10 * time.Millisecond)
 	owed := 0.0
 	offered := 0
@@ -113,9 +150,7 @@ func main() {
 		for ; owed >= 1; owed-- {
 			offers <- time.Now()
 			offered++
-		}
-		if offered%(rate*10) == 0 {
-			log.Printf("t=%.0fs offered %d attempts %d refused %d", time.Since(start).Seconds(), offered, attempts.Load(), exhausted.Load())
+			offeredN.Add(1)
 		}
 	}
 	tick.Stop()
@@ -148,7 +183,7 @@ func main() {
 		"attempts_per_offer": float64(attempts.Load()) / float64(offered),
 		"latency_p50_s":      pct(0.5), "latency_p99_s": pct(0.99), "latency_max_ok_s": slowestOK.Seconds(),
 		"wall_s":      time.Since(start).Seconds(),
-		"retry_for_s": retryFor.Seconds(), "caller_retries": callerRetries.Load(),
+		"retry_for_s": retryFor.Seconds(), "limit": os.Getenv("LIMIT"), "caller_retries": callerRetries.Load(),
 	}
 	b, _ := json.MarshalIndent(summary, "", "  ")
 	os.WriteFile(env("OUT", "burst.json"), b, 0o644)
